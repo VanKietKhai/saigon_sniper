@@ -3,6 +3,7 @@ import numpy as np
 from fastapi import FastAPI, UploadFile, File, Form
 import uvicorn
 import math
+from pathlib import Path
 from ultralytics import YOLO
 
 app = FastAPI()
@@ -11,7 +12,9 @@ async def ping():
     return {"status": "cham_diem_ai"}
 
 # Tải mô hình AI bạn vừa huấn luyện (Load 1 lần khi khởi động)
-model = YOLO('best.pt')
+BASE_DIR = Path(__file__).resolve().parent
+MODEL_PATH = BASE_DIR / "best.pt"
+model = YOLO(str(MODEL_PATH))
 
 # =====================================================================
 # THÊM MỚI 1: HÀM NẮN PHẲNG ẢNH (BIRD'S EYE VIEW) ĐỂ TRỊ GÓC CHỤP XÉO
@@ -97,7 +100,7 @@ def _process_target_yolo(contents):
         if 'bull' in cls_name:
             bullseye_box = (int(x1), int(y1), int(x2), int(y2))
         elif 'hole' in cls_name:
-            raw_holes.append((int(x1), int(y1), int(x2), int(y2)))
+            raw_holes.append((int(x1), int(y1), int(x2), int(y2), float(box.conf[0])))
             
     refined_holes = []
     center_x, center_y = 0, 0
@@ -124,7 +127,7 @@ def _process_target_yolo(contents):
             bullseye_radius_px = max(bx2 - bx1, by2 - by1) / 2
 
         # BƯỚC ĐỘT PHÁ 2: Tìm Trọng tâm (Centroid) của từng lỗ đạn
-        for hx1, hy1, hx2, hy2 in raw_holes:
+        for hx1, hy1, hx2, hy2, confidence in raw_holes:
             hole_roi = img[hy1:hy2, hx1:hx2]
             if hole_roi.size == 0: continue 
             
@@ -138,13 +141,17 @@ def _process_target_yolo(contents):
                 if M["m00"] != 0:
                     hole_cx = hx1 + int(M["m10"] / M["m00"])
                     hole_cy = hy1 + int(M["m01"] / M["m00"])
-                    refined_holes.append((hole_cx, hole_cy))
+                    refined_holes.append((hole_cx, hole_cy, confidence))
                 else:
-                    refined_holes.append(((hx1 + hx2) / 2, (hy1 + hy2) / 2))
+                    refined_holes.append(((hx1 + hx2) / 2, (hy1 + hy2) / 2, confidence))
             else:
-                refined_holes.append(((hx1 + hx2) / 2, (hy1 + hy2) / 2))
+                refined_holes.append(((hx1 + hx2) / 2, (hy1 + hy2) / 2, confidence))
 
-    return img, (center_x, center_y, bullseye_radius_px), refined_holes
+    bullseye_data = None
+    if bullseye_box is not None:
+        bullseye_data = (center_x, center_y, bullseye_radius_px)
+
+    return img, bullseye_data, refined_holes
 
 @app.post("/check-align")
 async def check_align(file: UploadFile = File(...)):
@@ -176,8 +183,12 @@ async def analyze_target(
             ring_gap_mm = 8.0 
             
         mm_per_pixel = black_radius_mm / bullseye_radius_px
+
+        if len(holes) > shots_per_target:
+            holes.sort(key=lambda hole: hole[2], reverse=True)
+            holes = holes[:shots_per_target]
         
-        for hole_cx, hole_cy in holes:
+        for hole_cx, hole_cy, _ in holes:
             distance_px = math.hypot(hole_cx - center_x, hole_cy - center_y)
             d = distance_px * mm_per_pixel
             
@@ -190,10 +201,6 @@ async def analyze_target(
             score = int(max(0, min(10, math.floor(raw_score))))
             scores.append(score)
             
-    scores.sort(reverse=True)
-    if len(scores) > shots_per_target:
-        scores = scores[:shots_per_target]
-
     return {
         "status": "success",
         "hole_count": len(scores),

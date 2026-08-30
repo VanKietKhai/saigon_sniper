@@ -53,6 +53,10 @@ class _CameraScreenState extends State<CameraScreen> {
 
   String get _roundName => widget.isVongLoai ? "VÒNG LOẠI" : "VÒNG TRONG";
   int get _currentDanBia => widget.isVongLoai ? widget.vlDanBia : widget.vtDanBia;
+  String get _targetType => widget.loaiBia.toUpperCase().contains('TRƯỜNG') ||
+          widget.loaiBia.toUpperCase().contains('NHỎ')
+      ? 'air_rifle_10m'
+      : 'air_pistol_10m';
   
   int get _maxTurn => widget.isVongLoai ? ((widget.vlDanBia > 0) ? (widget.vlTongDan ~/ widget.vlDanBia) : 1) : 99;
 
@@ -158,6 +162,7 @@ class _CameraScreenState extends State<CameraScreen> {
         var request = http.MultipartRequest('POST', Uri.parse(aiApiUrl));
         request.files.add(await http.MultipartFile.fromPath('file', imageFile.path));
         request.fields['shots_per_target'] = _currentDanBia.toString();
+        request.fields['target_type'] = _targetType;
         var streamedResponse = await request.send();
         var response = await http.Response.fromStream(streamedResponse);
         if (response.statusCode == 200) return jsonDecode(response.body); 
@@ -307,6 +312,7 @@ class _CameraScreenState extends State<CameraScreen> {
 
     // 1. LƯU LẠI INDEX HIỆN TẠI ĐỂ GỬI API NGẦM
     int oldIndex = _currentIndex;
+    int submittedTurn = _currentTurn;
     String currentShooterName = widget.shooterNames[oldIndex];
 
     // 2. CẬP NHẬT UI NGAY LẬP TỨC (Ẩn Turn, xóa điểm, reset camera)
@@ -334,7 +340,7 @@ class _CameraScreenState extends State<CameraScreen> {
         Uri.parse(apiUrl),
         body: {
           "vong": _roundName,
-          "turn": _currentTurn.toString(),
+          "turn": submittedTurn.toString(),
           "name": currentShooterName,
           "score": score,
         },

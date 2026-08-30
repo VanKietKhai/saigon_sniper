@@ -1,9 +1,11 @@
 import cv2
 import numpy as np
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 import uvicorn
 import math
+from pathlib import Path
 from ultralytics import YOLO
+from scoring import TARGET_SPECS, normalize_target_type, score_issf_decimal_tenths
 
 app = FastAPI()
 @app.get("/ping")
@@ -11,7 +13,9 @@ async def ping():
     return {"status": "cham_diem_ai"}
 
 # Tải mô hình AI bạn vừa huấn luyện (Load 1 lần khi khởi động)
-model = YOLO('best.pt')
+BASE_DIR = Path(__file__).resolve().parent
+MODEL_PATH = BASE_DIR / "best.pt"
+model = YOLO(str(MODEL_PATH))
 
 def _process_target_yolo(contents):
     nparr = np.frombuffer(contents, np.uint8)
@@ -32,7 +36,7 @@ def _process_target_yolo(contents):
         if 'bull' in cls_name: # Nhận diện hồng tâm (bull_eye)
             bullseye_box = (x1, y1, x2, y2)
         elif 'hole' in cls_name: # Nhận diện lỗ đạn (hole)
-            holes.append((x1, y1, x2, y2))
+            holes.append((x1, y1, x2, y2, float(box.conf[0])))
             
     return img, bullseye_box, holes
 
@@ -46,12 +50,16 @@ async def check_align(file: UploadFile = File(...)):
 async def analyze_target(
     file: UploadFile = File(...), 
     shots_per_target: int = Form(5),
-    target_type: str = Form("bia_nho") 
+    target_type: str = Form("air_rifle_10m")
 ):
     contents = await file.read()
     img, bullseye, holes = _process_target_yolo(contents)
     
-    scores = []
+    try:
+        normalized_target_type = normalize_target_type(target_type)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    score_tenths = []
     if bullseye is not None:
         # Tính tâm và bán kính pixel của hồng tâm
         bx1, by1, bx2, by2 = bullseye
@@ -59,46 +67,33 @@ async def analyze_target(
         center_y = (by1 + by2) / 2
         bullseye_radius_px = max(bx2 - bx1, by2 - by1) / 2
         
-        # Lấy thông số chuẩn theo loại bia
-        if target_type == "bia_nho":
-            black_radius_mm = 15.25
-            ring_gap_mm = 2.5 
-        else:
-            black_radius_mm = 29.75
-            ring_gap_mm = 8.0 
+        black_radius_mm = TARGET_SPECS[normalized_target_type]["black_radius_mm"]
             
         mm_per_pixel = black_radius_mm / bullseye_radius_px
         
-        # Chấm điểm từng lỗ đạn bằng thuật toán ISSF
-        for hx1, hy1, hx2, hy2 in holes:
+        # When there are extra detections, retain the most confident ones.
+        if len(holes) > shots_per_target:
+            holes.sort(key=lambda hole: hole[4], reverse=True)
+            holes = holes[:shots_per_target]
+
+        # Score each detected hole using deterministic decimal-zone boundaries.
+        for hx1, hy1, hx2, hy2, _ in holes:
             hole_cx = (hx1 + hx2) / 2
             hole_cy = (hy1 + hy2) / 2
             
-            # 1. Tính khoảng cách d (mm) từ TÂM viên đạn đến TÂM bia
             distance_px = math.hypot(hole_cx - center_x, hole_cy - center_y)
-            d = distance_px * mm_per_pixel
-            
-            # 2. Áp dụng công thức nội suy chuẩn ISSF
-            if target_type == "bia_nho":
-                # Khoảng cách giữa các vòng là 2.5mm
-                raw_score = 11.0 - (d / 2.5)
-            else:
-                # Bia súng ngắn (khoảng cách vòng là 8.0mm)
-                raw_score = 11.0 - (d / 8.0)
-            
-            # 3. Chốt điểm (tối đa 10.9, tối thiểu 0) và làm tròn 1 chữ số thập phân
-            score = round(min(10.9, max(0.0, raw_score)), 1)
-            scores.append(score)
-            
-    scores.sort(reverse=True)
-    if len(scores) > shots_per_target:
-        scores = scores[:shots_per_target]
+            distance_mm = distance_px * mm_per_pixel
+            score_tenths.append(
+                score_issf_decimal_tenths(distance_mm, normalized_target_type)
+            )
+
+    scores = [tenths / 10 for tenths in score_tenths]
 
     return {
         "status": "success",
         "hole_count": len(scores),
         "scores": scores,
-        "total_score": round(sum(scores), 1)
+        "total_score": sum(score_tenths) / 10,
     }
 
 if __name__ == "__main__":
