@@ -2,3 +2,6 @@
 .venv/
 **/__pycache__/
 *.pyc
+
+# Local AI validation images
+AI_server/test_images/

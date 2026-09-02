@@ -5,9 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:camera/camera.dart'; 
 import '../main.dart'; 
 import 'selection_screen.dart'; 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
-import 'dart:io';
 
 class CameraScreen extends StatefulWidget {
   final List<String> shooterNames;
@@ -387,9 +385,12 @@ class _CameraScreenState extends State<CameraScreen> {
               Navigator.pop(context); 
 
               // 2. GỬI LỆNH XÓA NGẦM LÊN GOOGLE SHEET (Bỏ 'await' để ứng dụng không bị treo chờ)
-              http.post(Uri.parse(apiUrl), body: {"action": "clear"}).catchError((e) {
-                debugPrint("Lỗi xóa ngầm: $e");
-              });
+              http.post(Uri.parse(apiUrl), body: {"action": "clear"}).then<void>(
+                (_) {},
+                onError: (Object error, StackTrace stackTrace) {
+                  debugPrint("Lỗi xóa ngầm: $error");
+                },
+              );
 
               // 3. Thông báo nhanh cho người dùng
               ScaffoldMessenger.of(context).showSnackBar(
