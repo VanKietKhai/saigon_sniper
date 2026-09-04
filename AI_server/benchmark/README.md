@@ -65,3 +65,15 @@ For a one-shot image, `raw_hole_count > 1` is recorded as detection ambiguity
 or a possible false positive. It is not automatically an HTTP or pipeline
 failure if the API still returns one valid score, but it must be tracked
 separately.
+
+## Rifle source manifest
+
+`rifle_source_manifest.csv` records the external 600-image, single-shot Air
+Rifle source pool. Raw source images remain outside Git and are not copied
+into this repository. Each record has a stable `RIFLE_SRC_` identifier and a
+SHA-256 hash so that the original source image is permanently identifiable.
+
+All source-pool records initially remain unlabeled and unassigned. DNG files
+are retained in the manifest, but backend compatibility for them is not yet
+established. No image may become a final holdout because of an AI prediction;
+final holdout selection occurs only after independent ground-truth labeling.
