@@ -5,3 +5,11 @@
 
 # Local AI validation images
 AI_server/test_images/
+
+# macOS metadata
+.DS_Store
+**/.DS_Store
+
+# Flutter / Dart generated files
+.dart_tool/
+build/
