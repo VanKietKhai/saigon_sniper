@@ -77,3 +77,10 @@ All source-pool records initially remain unlabeled and unassigned. DNG files
 are retained in the manifest, but backend compatibility for them is not yet
 established. No image may become a final holdout because of an AI prediction;
 final holdout selection occurs only after independent ground-truth labeling.
+
+## Frozen Air Rifle reference rules
+
+`reference_rules.md` and `reference_rules.json` define the separately
+versioned Air Rifle 10 m single-shot physical and decimal scoring reference.
+Benchmark ground truth uses this independent rule set rather than treating
+production `scoring.py` as the sole authority.

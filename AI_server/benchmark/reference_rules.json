@@ -1,0 +1,41 @@
+{
+  "rule_set_id": "saigon_sniper_air_rifle_10m_decimal_v1",
+  "version": 1,
+  "target_type": "air_rifle_10m",
+  "status": "frozen_project_reference",
+  "scope": "single_shot_decimal_benchmarking",
+  "printed_target": {
+    "score_1_diameter_mm": 45.5,
+    "score_1_radius_mm": 22.75,
+    "integer_ring_radial_spacing_mm": 2.5,
+    "calibration_black_diameter_mm": 30.5
+  },
+  "projectile": {
+    "nominal_diameter_mm": 4.5,
+    "nominal_radius_mm": 2.25
+  },
+  "scoring_geometry": {
+    "distance_definition": "Euclidean distance in millimeters from target center to pellet-hole center.",
+    "max_valid_shot_center_radius_mm": 25.0,
+    "decimal_step_mm": 0.25,
+    "maximum_score_tenths": 109,
+    "minimum_hit_score_tenths": 10,
+    "miss_score_tenths": 0,
+    "calculation": "For d_mm <= 25.0, score_tenths = min(109, floor((11.0 - d_mm / 2.5) * 10 + epsilon)). For d_mm > 25.0, score_tenths = 0."
+  },
+  "boundary_policy": {
+    "exact_boundary_gets_higher_score": true,
+    "epsilon": 1e-09,
+    "epsilon_scope": "Floating-point protection for exact mathematical decimal-zone boundaries only; it does not extend the physical maximum valid radius.",
+    "conceptual_rule": "Every additional 0.25 mm of center distance lowers the score by exactly 0.1 point."
+  },
+  "labeler_calibration": {
+    "reference": "outer_black_aiming_area_4_ring_boundary",
+    "reference_diameter_mm": 30.5,
+    "method": "human_selected_points_then_ellipse_fit",
+    "points_min": 5,
+    "points_max": 8,
+    "fit_type": "ellipse",
+    "center_source": "ellipse_derived_center"
+  }
+}
