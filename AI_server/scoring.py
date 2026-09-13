@@ -40,7 +40,7 @@ def score_issf_decimal_tenths(distance_mm, target_type):
     max_scoring_radius_mm = spec["max_scoring_radius_mm"]
     ring_gap_mm = spec["ring_gap_mm"]
 
-    if distance_mm > max_scoring_radius_mm + DECIMAL_BOUNDARY_EPSILON:
+    if distance_mm > max_scoring_radius_mm:
         return 0
 
     raw_tenths = (11.0 - (distance_mm / ring_gap_mm)) * 10
