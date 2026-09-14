@@ -59,7 +59,18 @@
           </div>
           <p class="control-help">Chọn từ 5 đến 8 điểm trên mép ngoài vùng đen / vòng 4 của bia. Sau khi xác nhận hiệu chuẩn, phóng lớn ảnh và chọn chính xác tâm lỗ đạn. Khi chọn lại sẽ cần xác nhận. Điểm rìa lỗ đạn được xử lý ở giai đoạn sau.</p>
           <p class="provisional-notice">TẠM TÍNH — CHƯA LƯU DỮ LIỆU GROUND TRUTH</p>
-          <button type="button" disabled>Lưu chú thích</button>
+          <label for="labeler-id">Mã người chấm</label>
+          <input id="labeler-id" type="text" maxlength="128" placeholder="LABELER_01">
+          <label for="annotation-pass">Lượt chấm</label>
+          <select id="annotation-pass"><option value="A">Lượt chấm A</option><option value="B">Lượt chấm B</option></select>
+          <label for="perspective-status">Trạng thái phối cảnh</label>
+          <select id="perspective-status"><option value="circular">Gần tròn / ít méo phối cảnh</option><option value="elliptical_moderate">Elip vừa / phối cảnh chấp nhận được</option><option value="extreme_needs_review">Phối cảnh mạnh — cần xem lại</option><option value="excluded">Loại</option></select>
+          <label for="label-quality">Chất lượng nhãn</label>
+          <select id="label-quality"><option value="good">Tốt</option><option value="usable">Có thể sử dụng</option><option value="ambiguous">Không rõ</option><option value="poor">Kém</option></select>
+          <label for="annotation-notes">Ghi chú</label>
+          <textarea id="annotation-notes" maxlength="2000"></textarea>
+          <p id="save-status">Chưa lưu lượt chấm</p>
+          <button id="save-annotation" type="button" disabled>Lưu lượt chấm</button>
           <button type="button" disabled>Ảnh tiếp theo</button>
         </aside>
       </section>

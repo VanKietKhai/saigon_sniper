@@ -23,6 +23,12 @@ const derivationStatus = document.querySelector("#derivation-status");
 const derivationDetails = document.querySelector("#derivation-details");
 const zoomStatus = document.querySelector("#zoom-status");
 const cursorStatus = document.querySelector("#cursor-status");
+const labelerId = document.querySelector("#labeler-id");
+const annotationPass = document.querySelector("#annotation-pass");
+const perspectiveStatus = document.querySelector("#perspective-status");
+const labelQuality = document.querySelector("#label-quality");
+const annotationNotes = document.querySelector("#annotation-notes");
+const saveStatus = document.querySelector("#save-status");
 const controls = {
   fit: document.querySelector("#fit-view"),
   oneToOne: document.querySelector("#one-to-one"),
@@ -38,6 +44,7 @@ const controls = {
   holeCenter: document.querySelector("#hole-center-mode"),
   clearHoleCenter: document.querySelector("#clear-hole-center"),
   derive: document.querySelector("#derive-score"),
+  save: document.querySelector("#save-annotation"),
 };
 
 const MIN_SCALE = 0.05;
@@ -90,6 +97,7 @@ const state = {
   holeCenter: null,
   derivedResult: null,
   derivationError: null,
+  savedAnnotation: null,
 };
 
 async function loadHealth() {
@@ -131,6 +139,8 @@ function resetImage(message) {
   state.verifiedAndDecoded = false;
   state.pointerImage = null;
   state.mode = "none";
+  state.savedAnnotation = null;
+  saveStatus.textContent = "Chưa lưu lượt chấm";
   invalidateFit();
   imageMessage.hidden = false;
   imageMessage.textContent = message;
@@ -249,6 +259,7 @@ function updateControls() {
   controls.holeCenter.disabled = !holeCenterReady;
   controls.clearHoleCenter.disabled = !holeCenterReady || state.holeCenter === null;
   controls.derive.disabled = !holeCenterReady || state.holeCenter === null || !state.sourceId;
+  controls.save.disabled = !state.derivedResult || !labelerId.value.trim() || state.savedAnnotation !== null;
   controls.pan.setAttribute("aria-pressed", String(state.mode === "pan"));
   controls.calibration.setAttribute("aria-pressed", String(state.mode === "calibration"));
   controls.holeCenter.setAttribute("aria-pressed", String(state.mode === "hole_center"));
@@ -272,6 +283,19 @@ function updateControls() {
     : "—";
   zoomStatus.textContent = ready ? `${Math.round(state.view.scale * 100)}%` : "—";
   canvas.style.cursor = state.mode === "pan" ? "grab" : (state.mode === "calibration" || state.mode === "hole_center") ? "crosshair" : "default";
+}
+
+async function saveAnnotation() {
+  if (!state.derivedResult || !labelerId.value.trim() || state.savedAnnotation) return;
+  const score = state.derivedResult.provisional_score.toFixed(1);
+  if (!window.confirm(`Lưu lượt chấm ${annotationPass.value} cho ${state.sourceId}, người chấm ${labelerId.value.trim()}, điểm tạm tính ${score}?`)) return;
+  saveStatus.textContent = "Đang lưu lượt chấm…";
+  const response = await fetch("/api/annotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source_id: state.sourceId, annotation_pass: annotationPass.value, labeler_id: labelerId.value.trim(), calibration_points: state.calibrationPoints, hole_center: state.holeCenter, perspective_status: perspectiveStatus.value, label_quality: labelQuality.value, notes: annotationNotes.value }) });
+  const payload = await response.json();
+  if (!response.ok) { saveStatus.textContent = payload.detail?.status === "duplicate_annotation_pass" ? "Lượt chấm này đã tồn tại." : "Không thể lưu lượt chấm."; return; }
+  state.savedAnnotation = payload.annotation_id;
+  saveStatus.textContent = `Đã lưu lượt chấm. Mã annotation: ${payload.annotation_id}`;
+  updateControls();
 }
 
 function fitView() {
@@ -485,6 +509,8 @@ controls.clearHoleCenter.addEventListener("click", () => {
   }
 });
 controls.derive.addEventListener("click", deriveScore);
+controls.save.addEventListener("click", () => { saveAnnotation().catch(() => { saveStatus.textContent = "Không thể lưu lượt chấm."; }); });
+labelerId.addEventListener("input", updateControls);
 canvas.addEventListener("wheel", (event) => {
   if (!state.verifiedAndDecoded) return;
   event.preventDefault();

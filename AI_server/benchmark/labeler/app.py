@@ -19,6 +19,7 @@ from .manifest import (
 )
 from .ellipse import EllipseFitError, fit_human_calibration_ellipse
 from .derivation import DerivationError, derive_provisional_result, load_frozen_reference
+from .annotations import AnnotationError, DuplicateAnnotationError, append_annotation
 
 
 LABELER_ROOT = Path(__file__).resolve().parent
@@ -49,6 +50,18 @@ class DeriveRequest(BaseModel):
     source_id: str
     calibration_points: list[CalibrationPoint]
     hole_center: CalibrationPoint
+
+
+class AnnotationRequest(BaseModel):
+    source_id: str
+    annotation_pass: str
+    labeler_id: str
+    calibration_points: list[CalibrationPoint]
+    hole_center: CalibrationPoint
+    perspective_status: str
+    label_quality: str
+    notes: str = ""
+    hole_boundary_points: list[CalibrationPoint] | None = None
 
 
 @app.get("/health")
@@ -118,6 +131,19 @@ async def derive_score(request: DeriveRequest) -> dict[str, object]:
             detail={"status": "invalid_human_geometry", "message": str(error)},
         ) from error
     return {"status": "derived_provisional", "result": result.public()}
+
+
+@app.post("/api/annotations", status_code=201)
+async def save_annotation(request: AnnotationRequest) -> dict[str, object]:
+    """Append one independently human-created pass; never update existing rows."""
+    payload = request.model_dump() if hasattr(request, "model_dump") else request.dict()
+    try:
+        saved = append_annotation(payload, source_manifest, frozen_reference)
+    except DuplicateAnnotationError as error:
+        raise HTTPException(status_code=409, detail={"status": str(error)}) from error
+    except (AnnotationError, SourceNotFoundError, EllipseFitError, DerivationError) as error:
+        raise HTTPException(status_code=422, detail={"status": str(error)}) from error
+    return {"status": "annotation_appended", **saved}
 
 
 @app.get("/", response_class=FileResponse)
