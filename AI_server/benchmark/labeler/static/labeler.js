@@ -18,6 +18,7 @@ const calibrationStatus = document.querySelector("#calibration-status");
 const calibrationReference = document.querySelector("#calibration-reference");
 const fitStatus = document.querySelector("#fit-status");
 const fitDetails = document.querySelector("#fit-details");
+const holeCenterStatus = document.querySelector("#hole-center-status");
 const zoomStatus = document.querySelector("#zoom-status");
 const cursorStatus = document.querySelector("#cursor-status");
 const controls = {
@@ -32,6 +33,8 @@ const controls = {
   fitEllipse: document.querySelector("#fit-ellipse"),
   accept: document.querySelector("#accept-calibration"),
   redo: document.querySelector("#redo-calibration"),
+  holeCenter: document.querySelector("#hole-center-mode"),
+  clearHoleCenter: document.querySelector("#clear-hole-center"),
 };
 
 const MIN_SCALE = 0.05;
@@ -51,6 +54,7 @@ const state = {
   fitState: "not_fitted",
   fitError: null,
   calibrationReference: null,
+  holeCenter: null,
 };
 
 async function loadHealth() {
@@ -72,6 +76,12 @@ function invalidateFit(nextState = "not_fitted") {
   state.ellipseFit = null;
   state.fitState = nextState;
   state.fitError = null;
+  clearHoleCenter();
+}
+
+function clearHoleCenter() {
+  state.holeCenter = null;
+  if (state.mode === "hole_center") state.mode = "none";
 }
 
 function resetImage(message) {
@@ -151,6 +161,26 @@ function render() {
     context.stroke();
     context.restore();
   }
+  if (state.holeCenter) {
+    const display = transforms.imageToDisplay(
+      { x: state.holeCenter.x_px, y: state.holeCenter.y_px }, state.view,
+    );
+    context.save();
+    context.strokeStyle = "#74e86f";
+    context.fillStyle = "rgba(20, 37, 26, 0.85)";
+    context.lineWidth = 2;
+    context.beginPath();
+    context.rect(display.x - 6, display.y - 6, 12, 12);
+    context.fill();
+    context.stroke();
+    context.beginPath();
+    context.moveTo(display.x - 10, display.y);
+    context.lineTo(display.x + 10, display.y);
+    context.moveTo(display.x, display.y - 10);
+    context.lineTo(display.x, display.y + 10);
+    context.stroke();
+    context.restore();
+  }
   if (state.pointerImage) {
     const display = transforms.imageToDisplay(state.pointerImage, state.view);
     context.save();
@@ -174,8 +204,12 @@ function updateControls() {
   controls.fitEllipse.disabled = !ready || state.calibrationPoints.length < 5;
   controls.accept.disabled = !ready || state.fitState !== "fitted";
   controls.redo.disabled = !ready || state.calibrationPoints.length === 0;
+  const holeCenterReady = ready && state.fitState === "accepted" && state.ellipseFit !== null;
+  controls.holeCenter.disabled = !holeCenterReady;
+  controls.clearHoleCenter.disabled = !holeCenterReady || state.holeCenter === null;
   controls.pan.setAttribute("aria-pressed", String(state.mode === "pan"));
   controls.calibration.setAttribute("aria-pressed", String(state.mode === "calibration"));
+  controls.holeCenter.setAttribute("aria-pressed", String(state.mode === "hole_center"));
   calibrationStatus.textContent = ready
     ? `${state.calibrationPoints.length} / 8 points${state.calibrationPoints.length >= 5 ? " (ready to fit)" : ""}`
     : "Disabled until verified JPG decode";
@@ -183,8 +217,13 @@ function updateControls() {
   fitDetails.textContent = state.ellipseFit
     ? `Center ${state.ellipseFit.center_x_px.toFixed(2)}, ${state.ellipseFit.center_y_px.toFixed(2)} px · Major ${state.ellipseFit.radius_major_px.toFixed(2)} px · Minor ${state.ellipseFit.radius_minor_px.toFixed(2)} px · Rotation ${state.ellipseFit.rotation_deg.toFixed(2)}° · RMS ${state.ellipseFit.calibration_fit_residual_px.toFixed(3)} px · Max ${state.ellipseFit.max_radial_residual_px.toFixed(3)} px · Axis ratio ${state.ellipseFit.axis_ratio.toFixed(4)} · ${state.ellipseFit.point_count} points`
     : state.fitError || "—";
+  holeCenterStatus.textContent = !holeCenterReady
+    ? "Unavailable until calibration accepted"
+    : state.holeCenter
+      ? `X ${state.holeCenter.x_px.toFixed(2)} px · Y ${state.holeCenter.y_px.toFixed(2)} px (human-confirmed, transient)`
+      : "Not set";
   zoomStatus.textContent = ready ? `${Math.round(state.view.scale * 100)}%` : "—";
-  canvas.style.cursor = state.mode === "pan" ? "grab" : state.mode === "calibration" ? "crosshair" : "default";
+  canvas.style.cursor = state.mode === "pan" ? "grab" : (state.mode === "calibration" || state.mode === "hole_center") ? "crosshair" : "default";
 }
 
 function fitView() {
@@ -237,6 +276,15 @@ function clearTransientPoints() {
   render();
 }
 
+function setHoleCenter(imagePoint) {
+  if (!imagePoint || !Number.isFinite(imagePoint.x) || !Number.isFinite(imagePoint.y)
+    || imagePoint.x < 0 || imagePoint.y < 0) return;
+  if (state.holeCenter && !window.confirm("Replace the existing transient hole center?")) return;
+  state.holeCenter = { x_px: imagePoint.x, y_px: imagePoint.y };
+  updateControls();
+  render();
+}
+
 async function fitEllipse() {
   if (!state.verifiedAndDecoded || state.calibrationPoints.length < 5) return;
   invalidateFit();
@@ -276,7 +324,7 @@ async function loadSource() {
     return;
   }
 
-  if ((state.calibrationPoints.length > 0 || state.ellipseFit) && sourceId !== state.sourceId
+  if ((state.calibrationPoints.length > 0 || state.ellipseFit || state.holeCenter) && sourceId !== state.sourceId
     && !window.confirm("Changing source discards transient calibration points. Continue?")) return;
   if (sourceId !== state.sourceId) clearTransientPoints();
   resetImage("Checking source identity...");
@@ -352,6 +400,17 @@ controls.accept.addEventListener("click", () => {
   }
 });
 controls.redo.addEventListener("click", redoCalibration);
+controls.holeCenter.addEventListener("click", () => {
+  state.mode = state.mode === "hole_center" ? "none" : "hole_center";
+  updateControls();
+});
+controls.clearHoleCenter.addEventListener("click", () => {
+  if (state.holeCenter && window.confirm("Clear the transient hole center?")) {
+    clearHoleCenter();
+    updateControls();
+    render();
+  }
+});
 canvas.addEventListener("wheel", (event) => {
   if (!state.verifiedAndDecoded) return;
   event.preventDefault();
@@ -397,6 +456,14 @@ canvas.addEventListener("pointerdown", (event) => {
     invalidateFit();
     updateControls();
     render();
+  }
+  if (state.mode === "hole_center") {
+    const imagePoint = imagePointFromEvent(event);
+    if (!imagePoint) {
+      holeCenterStatus.textContent = "Outside image: hole center not set";
+      return;
+    }
+    setHoleCenter(imagePoint);
   }
 });
 canvas.addEventListener("pointerup", (event) => {

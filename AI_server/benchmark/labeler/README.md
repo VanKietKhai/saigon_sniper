@@ -109,3 +109,18 @@ center marker are transformed from original-image coordinates on every render,
 so zoom, pan, Fit, and 100% view cannot mutate the fit. Fit acceptance and
 redo are transient only: no annotation, score, physical scale, or hole center
 is stored or calculated.
+
+## R1.3D.5 human hole center
+
+Only after a verified JPG has a fitted **and accepted** transient calibration,
+the explicit **Hole Center mode** accepts one human-confirmed image-space click
+as `x_px` and `y_px`. It neither detects nor adjusts the click from image
+content. A second click requires replacement confirmation; Clear removes only
+the in-memory center. The green square/cross marker uses the same image-to-
+display transform as all calibration geometry, so view changes do not alter its
+stored original-image coordinates.
+
+Changing calibration points, refitting, redoing calibration, or changing the
+source clears the transient hole center. Hole boundary points for torn or
+ambiguous holes remain deferred to a later review workflow. This stage does not
+calculate distance, scale, or any score, and it does not persist annotations.

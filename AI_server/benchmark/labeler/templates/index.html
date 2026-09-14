@@ -29,7 +29,7 @@
             <div><dt>Calibration reference</dt><dd id="calibration-reference">Loading frozen rule…</dd></div>
             <div><dt>Ellipse fit</dt><dd id="fit-status">Not fitted</dd></div>
             <div><dt>Fit details</dt><dd id="fit-details">—</dd></div>
-            <div><dt>Hole center</dt><dd>Not implemented</dd></div>
+            <div><dt>Hole center</dt><dd id="hole-center-status">Unavailable until calibration accepted</dd></div>
             <div><dt>Identity status</dt><dd id="identity-status">Not checked</dd></div>
             <div><dt>Zoom</dt><dd id="zoom-status">—</dd></div>
             <div><dt>Cursor image X/Y</dt><dd id="cursor-status">Outside image</dd></div>
@@ -51,8 +51,10 @@
             <button id="fit-ellipse" type="button" disabled>Fit ellipse</button>
             <button id="accept-calibration" type="button" disabled>Accept calibration</button>
             <button id="redo-calibration" type="button" disabled>Redo calibration</button>
+            <button id="hole-center-mode" type="button" aria-pressed="false" disabled>Hole Center mode</button>
+            <button id="clear-hole-center" type="button" disabled>Clear hole center</button>
           </div>
-          <p class="control-help">In Calibration mode, click the image to add 5–8 boundary points. In Pan mode, drag to pan. Fitting and acceptance are transient only; no annotation is saved.</p>
+          <p class="control-help">After accepting calibration, use Hole Center mode for one human-confirmed click. A replacement click requires confirmation. Hole boundary points and scoring remain deferred.</p>
           <button type="button" disabled>Save annotation</button>
           <button type="button" disabled>Next image</button>
         </aside>
