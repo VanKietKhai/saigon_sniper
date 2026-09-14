@@ -124,3 +124,26 @@ Changing calibration points, refitting, redoing calibration, or changing the
 source clears the transient hole center. Hole boundary points for torn or
 ambiguous holes remain deferred to a later review workflow. This stage does not
 calculate distance, scale, or any score, and it does not persist annotations.
+
+## R1.3D.6 provisional human-geometry derivation
+
+After accepted calibration and one human-confirmed hole center, the labeler
+posts raw human geometry to `/api/derive`. The backend refits the ellipse and
+uses the frozen reference rule set, independently of production scoring. It
+derives local ellipse-axis diagnostics `mm_per_px_major` and
+`mm_per_px_minor`, then calculates distance as:
+
+```text
+R_mm * sqrt((u_px / major_radius_px)^2 + (v_px / minor_radius_px)^2)
+```
+
+where `u_px` and `v_px` are the hole displacement along the normalized ellipse
+major and minor axes, and `R_mm` is the 15.25 mm calibration radius. This is an
+affine / moderate-perspective normalization, not projective homography
+rectification; severe perspective still requires human review or exclusion.
+
+The frozen reference independently derives a provisional integer-tenths score.
+The strict physical 25.0 mm outer radius has no epsilon extension; only decimal
+zone arithmetic uses its frozen numerical epsilon. A result is always labeled
+**PROVISIONAL — NOT YET SAVED GROUND TRUTH**. Any source, calibration, or hole
+center change clears it. No distance, scale, score, or annotation is persisted.

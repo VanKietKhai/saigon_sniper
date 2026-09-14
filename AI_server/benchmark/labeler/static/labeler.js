@@ -19,6 +19,8 @@ const calibrationReference = document.querySelector("#calibration-reference");
 const fitStatus = document.querySelector("#fit-status");
 const fitDetails = document.querySelector("#fit-details");
 const holeCenterStatus = document.querySelector("#hole-center-status");
+const derivationStatus = document.querySelector("#derivation-status");
+const derivationDetails = document.querySelector("#derivation-details");
 const zoomStatus = document.querySelector("#zoom-status");
 const cursorStatus = document.querySelector("#cursor-status");
 const controls = {
@@ -35,6 +37,7 @@ const controls = {
   redo: document.querySelector("#redo-calibration"),
   holeCenter: document.querySelector("#hole-center-mode"),
   clearHoleCenter: document.querySelector("#clear-hole-center"),
+  derive: document.querySelector("#derive-score"),
 };
 
 const MIN_SCALE = 0.05;
@@ -55,6 +58,8 @@ const state = {
   fitError: null,
   calibrationReference: null,
   holeCenter: null,
+  derivedResult: null,
+  derivationError: null,
 };
 
 async function loadHealth() {
@@ -79,9 +84,15 @@ function invalidateFit(nextState = "not_fitted") {
   clearHoleCenter();
 }
 
+function invalidateDerived() {
+  state.derivedResult = null;
+  state.derivationError = null;
+}
+
 function clearHoleCenter() {
   state.holeCenter = null;
   if (state.mode === "hole_center") state.mode = "none";
+  invalidateDerived();
 }
 
 function resetImage(message) {
@@ -207,6 +218,7 @@ function updateControls() {
   const holeCenterReady = ready && state.fitState === "accepted" && state.ellipseFit !== null;
   controls.holeCenter.disabled = !holeCenterReady;
   controls.clearHoleCenter.disabled = !holeCenterReady || state.holeCenter === null;
+  controls.derive.disabled = !holeCenterReady || state.holeCenter === null || !state.sourceId;
   controls.pan.setAttribute("aria-pressed", String(state.mode === "pan"));
   controls.calibration.setAttribute("aria-pressed", String(state.mode === "calibration"));
   controls.holeCenter.setAttribute("aria-pressed", String(state.mode === "hole_center"));
@@ -222,6 +234,12 @@ function updateControls() {
     : state.holeCenter
       ? `X ${state.holeCenter.x_px.toFixed(2)} px · Y ${state.holeCenter.y_px.toFixed(2)} px (human-confirmed, transient)`
       : "Not set";
+  derivationStatus.textContent = state.derivedResult
+    ? "PROVISIONAL — NOT YET SAVED GROUND TRUTH"
+    : state.derivationError || "Not derived";
+  derivationDetails.textContent = state.derivedResult
+    ? `Rule ${state.derivedResult.rule_set_id} · Target ${state.derivedResult.target_center_x_px.toFixed(2)}, ${state.derivedResult.target_center_y_px.toFixed(2)} px · Hole ${state.derivedResult.hole_center_x_px.toFixed(2)}, ${state.derivedResult.hole_center_y_px.toFixed(2)} px · Major scale ${state.derivedResult.mm_per_px_major.toFixed(6)} mm/px · Minor scale ${state.derivedResult.mm_per_px_minor.toFixed(6)} mm/px · Distance ${state.derivedResult.center_distance_mm.toFixed(4)} mm · ${state.derivedResult.is_miss ? "0.0 / MISS" : `Provisional score ${state.derivedResult.provisional_score.toFixed(1)}`}`
+    : "—";
   zoomStatus.textContent = ready ? `${Math.round(state.view.scale * 100)}%` : "—";
   canvas.style.cursor = state.mode === "pan" ? "grab" : (state.mode === "calibration" || state.mode === "hole_center") ? "crosshair" : "default";
 }
@@ -281,8 +299,33 @@ function setHoleCenter(imagePoint) {
     || imagePoint.x < 0 || imagePoint.y < 0) return;
   if (state.holeCenter && !window.confirm("Replace the existing transient hole center?")) return;
   state.holeCenter = { x_px: imagePoint.x, y_px: imagePoint.y };
+  invalidateDerived();
   updateControls();
   render();
+}
+
+async function deriveScore() {
+  if (!state.sourceId || !state.holeCenter || !state.ellipseFit || state.fitState !== "accepted") return;
+  invalidateDerived();
+  derivationStatus.textContent = "Deriving provisional result…";
+  try {
+    const response = await fetch("/api/derive", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        source_id: state.sourceId,
+        calibration_points: state.calibrationPoints,
+        hole_center: state.holeCenter,
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail?.message || "provisional_derivation_failed");
+    if (payload.result.source_id !== state.sourceId) throw new Error("stale_source_result_rejected");
+    state.derivedResult = payload.result;
+  } catch (error) {
+    state.derivationError = error.message;
+  }
+  updateControls();
 }
 
 async function fitEllipse() {
@@ -411,6 +454,7 @@ controls.clearHoleCenter.addEventListener("click", () => {
     render();
   }
 });
+controls.derive.addEventListener("click", deriveScore);
 canvas.addEventListener("wheel", (event) => {
   if (!state.verifiedAndDecoded) return;
   event.preventDefault();

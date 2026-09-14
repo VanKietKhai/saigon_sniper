@@ -102,6 +102,8 @@ button:disabled { opacity: 0.55; }
 
 .control-help { color: #c7d1ca; font-size: 0.9rem; line-height: 1.4; }
 
+.provisional-notice { color: #f0a928; font-weight: 700; font-size: 0.9rem; }
+
 .source-loader {
   display: grid;
   grid-template-columns: 1fr auto;

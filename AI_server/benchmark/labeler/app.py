@@ -18,6 +18,7 @@ from .manifest import (
     dataset_root_from_environment,
 )
 from .ellipse import EllipseFitError, fit_human_calibration_ellipse
+from .derivation import DerivationError, derive_provisional_result, load_frozen_reference
 
 
 LABELER_ROOT = Path(__file__).resolve().parent
@@ -26,6 +27,7 @@ REFERENCE_RULES_PATH = LABELER_ROOT.parent / "reference_rules.json"
 source_manifest = SourceManifest.load(MANIFEST_PATH)
 with REFERENCE_RULES_PATH.open(encoding="utf-8") as reference_rules_file:
     reference_rules = json.load(reference_rules_file)
+frozen_reference = load_frozen_reference(REFERENCE_RULES_PATH)
 app = FastAPI(title="Saigon Sniper Ground Truth Labeler", version="v1")
 app.mount(
     "/static",
@@ -41,6 +43,12 @@ class CalibrationPoint(BaseModel):
 
 class CalibrationFitRequest(BaseModel):
     points: list[CalibrationPoint]
+
+
+class DeriveRequest(BaseModel):
+    source_id: str
+    calibration_points: list[CalibrationPoint]
+    hole_center: CalibrationPoint
 
 
 @app.get("/health")
@@ -81,6 +89,35 @@ async def fit_calibration(request: CalibrationFitRequest) -> dict[str, object]:
             detail={"status": "invalid_calibration_points", "message": str(error)},
         ) from error
     return {"status": "fitted", "ellipse": fitted.public()}
+
+
+@app.post("/api/derive")
+async def derive_score(request: DeriveRequest) -> dict[str, object]:
+    """Derive a provisional score only from submitted human geometry."""
+    try:
+        source_manifest.record_for(request.source_id)
+        fitted = fit_human_calibration_ellipse(
+            [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.calibration_points]
+        )
+        hole_center = (
+            request.hole_center.model_dump()
+            if hasattr(request.hole_center, "model_dump")
+            else request.hole_center.dict()
+        )
+        result = derive_provisional_result(
+            request.source_id, fitted, hole_center, frozen_reference
+        )
+    except SourceNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail={"status": "source_not_found", "source_id": request.source_id},
+        ) from error
+    except (EllipseFitError, DerivationError) as error:
+        raise HTTPException(
+            status_code=422,
+            detail={"status": "invalid_human_geometry", "message": str(error)},
+        ) from error
+    return {"status": "derived_provisional", "result": result.public()}
 
 
 @app.get("/", response_class=FileResponse)

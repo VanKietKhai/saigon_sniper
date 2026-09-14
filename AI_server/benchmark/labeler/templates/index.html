@@ -30,6 +30,8 @@
             <div><dt>Ellipse fit</dt><dd id="fit-status">Not fitted</dd></div>
             <div><dt>Fit details</dt><dd id="fit-details">—</dd></div>
             <div><dt>Hole center</dt><dd id="hole-center-status">Unavailable until calibration accepted</dd></div>
+            <div><dt>Provisional derivation</dt><dd id="derivation-status">Not derived</dd></div>
+            <div><dt>Derivation details</dt><dd id="derivation-details">—</dd></div>
             <div><dt>Identity status</dt><dd id="identity-status">Not checked</dd></div>
             <div><dt>Zoom</dt><dd id="zoom-status">—</dd></div>
             <div><dt>Cursor image X/Y</dt><dd id="cursor-status">Outside image</dd></div>
@@ -53,8 +55,10 @@
             <button id="redo-calibration" type="button" disabled>Redo calibration</button>
             <button id="hole-center-mode" type="button" aria-pressed="false" disabled>Hole Center mode</button>
             <button id="clear-hole-center" type="button" disabled>Clear hole center</button>
+            <button id="derive-score" type="button" disabled>Derive Score</button>
           </div>
-          <p class="control-help">After accepting calibration, use Hole Center mode for one human-confirmed click. A replacement click requires confirmation. Hole boundary points and scoring remain deferred.</p>
+          <p class="control-help">After accepting calibration, use Hole Center mode for one human-confirmed click. A replacement click requires confirmation. Hole boundary points remain deferred.</p>
+          <p class="provisional-notice">PROVISIONAL — NOT YET SAVED GROUND TRUTH</p>
           <button type="button" disabled>Save annotation</button>
           <button type="button" disabled>Next image</button>
         </aside>
