@@ -52,3 +52,16 @@ image SHA-256 against `rifle_source_manifest.csv`.
 Only `GET /health` and the static placeholder UI exist in this stage. Image
 loading, source-manifest browsing, calibration fitting, scoring, and annotation
 saving are intentionally not implemented.
+
+## R1.3D.2 read-only source access
+
+The labeler now reads the committed rifle source manifest and provides
+`GET /api/sources`, `GET /api/sources/{source_id}`, and
+`GET /api/sources/{source_id}/image`. The dataset root is supplied only through
+the `SAIGON_SNIPER_DATASET_ROOT` environment variable. It is never committed or
+returned to the browser.
+
+JPG/JPEG files are resolved only through manifest `source_id`, kept beneath the
+configured dataset root, and SHA-256 verified before serving. DNG records stay
+visible in metadata but return `unsupported_format`; they are not decoded or
+converted. Annotation saving remains unimplemented.

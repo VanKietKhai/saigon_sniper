@@ -11,21 +11,29 @@
       <header>
         <p class="eyebrow">R1.3D V1</p>
         <h1>Saigon Sniper Ground Truth Labeler</h1>
-        <p class="stage">Scaffold only — image labeling is not yet enabled.</p>
+        <p class="stage">Identity-verified JPG loading only — labeling is not yet enabled.</p>
       </header>
 
       <section class="workspace" aria-label="Labeling scaffold">
-        <div class="image-placeholder" aria-label="Image unavailable in scaffold">
-          Image loading not implemented in R1.3D.1
+        <div class="image-placeholder" id="image-placeholder">
+          <img id="source-image" alt="Verified source preview" hidden>
+          <span id="image-message">No verified image loaded</span>
         </div>
         <aside class="annotation-panel">
           <dl>
-            <div><dt>Source ID</dt><dd>Not loaded</dd></div>
+            <div><dt>Dataset configured</dt><dd id="dataset-configured">Checking...</dd></div>
+            <div><dt>Manifest records</dt><dd id="manifest-record-count">Checking...</dd></div>
+            <div><dt>Source ID</dt><dd id="source-id-status">Not loaded</dd></div>
             <div><dt>Image</dt><dd>Not loaded</dd></div>
             <div><dt>Calibration</dt><dd>Not implemented</dd></div>
             <div><dt>Hole center</dt><dd>Not implemented</dd></div>
-            <div><dt>Review status</dt><dd>Not implemented</dd></div>
+            <div><dt>Identity status</dt><dd id="identity-status">Not checked</dd></div>
           </dl>
+          <label for="source-id-input">Test source ID</label>
+          <div class="source-loader">
+            <input id="source-id-input" type="text" placeholder="RIFLE_SRC_0001">
+            <button id="load-source" type="button">Load source</button>
+          </div>
           <button type="button" disabled>Save annotation</button>
           <button type="button" disabled>Next image</button>
         </aside>
