@@ -65,3 +65,26 @@ JPG/JPEG files are resolved only through manifest `source_id`, kept beneath the
 configured dataset root, and SHA-256 verified before serving. DNG records stay
 visible in metadata but return `unsupported_format`; they are not decoded or
 converted. Annotation saving remains unimplemented.
+
+## R1.3D.3 inspection canvas
+
+The browser loads a source image only from the verified image endpoint and
+renders the decoded JPG in a high-DPI canvas. Canvas backing dimensions follow
+`devicePixelRatio`; all interaction math remains in CSS pixels. The view scale
+is CSS display pixels per original image pixel, so **100% / 1:1** means one
+original pixel is one CSS display pixel even on Retina displays.
+
+Fit centers the complete image with a small margin and preserves its aspect
+ratio. Wheel zoom is pointer-anchored and bounded; visible zoom controls zoom
+around the viewport center. Toggle **Pan mode** to drag the image. Toggle
+**Calibration mode** to click transient calibration points. Each point is
+stored as floating-point original-image coordinates (`x_px`, `y_px`) and is
+never stored as canvas or screen coordinates. Pan and zoom do not change those
+coordinates.
+
+Calibration capture is enabled only after a manifest-verified JPG loads and
+decodes. It accepts at most eight points, shows when the future five-point
+minimum is reached, and supports transient undo and confirmed clear. Changing
+source requires confirmation before existing transient points are discarded.
+No points are persisted, and ellipse fitting, hole-center annotation, scoring,
+and annotations remain unimplemented.

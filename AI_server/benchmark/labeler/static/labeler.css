@@ -33,26 +33,39 @@ h1 { margin: 8px 0; }
   margin-top: 24px;
 }
 
-.image-placeholder,
+.canvas-stage,
 .annotation-panel {
   border: 1px solid #4c6654;
   border-radius: 10px;
   background: #1e3522;
 }
 
-.image-placeholder {
-  display: grid;
+.canvas-stage {
+  position: relative;
+  overflow: hidden;
   min-height: 480px;
-  place-items: center;
   color: #c7d1ca;
   text-align: center;
+  touch-action: none;
 }
 
-#source-image {
-  max-width: 100%;
-  max-height: 70vh;
-  object-fit: contain;
+#image-canvas {
+  display: block;
+  width: 100%;
+  height: min(70vh, 720px);
+  min-height: 480px;
+  cursor: default;
 }
+
+#image-message {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+#image-message[hidden] { display: none; }
 
 .annotation-panel { padding: 20px; }
 
@@ -70,6 +83,24 @@ button {
   margin-top: 12px;
   padding: 10px;
 }
+
+.control-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.control-grid button { margin-top: 0; }
+
+button[aria-pressed="true"] {
+  background: #f0a928;
+  color: #14251a;
+  font-weight: 700;
+}
+
+button:disabled { opacity: 0.55; }
+
+.control-help { color: #c7d1ca; font-size: 0.9rem; line-height: 1.4; }
 
 .source-loader {
   display: grid;

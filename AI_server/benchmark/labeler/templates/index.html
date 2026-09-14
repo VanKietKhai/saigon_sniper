@@ -11,12 +11,12 @@
       <header>
         <p class="eyebrow">R1.3D V1</p>
         <h1>Saigon Sniper Ground Truth Labeler</h1>
-        <p class="stage">Identity-verified JPG loading only — labeling is not yet enabled.</p>
+        <p class="stage">Identity-verified JPG inspection and transient calibration-point capture.</p>
       </header>
 
       <section class="workspace" aria-label="Labeling scaffold">
-        <div class="image-placeholder" id="image-placeholder">
-          <img id="source-image" alt="Verified source preview" hidden>
+        <div class="canvas-stage" id="canvas-stage">
+          <canvas id="image-canvas" aria-label="Verified source image canvas"></canvas>
           <span id="image-message">No verified image loaded</span>
         </div>
         <aside class="annotation-panel">
@@ -24,21 +24,35 @@
             <div><dt>Dataset configured</dt><dd id="dataset-configured">Checking...</dd></div>
             <div><dt>Manifest records</dt><dd id="manifest-record-count">Checking...</dd></div>
             <div><dt>Source ID</dt><dd id="source-id-status">Not loaded</dd></div>
-            <div><dt>Image</dt><dd>Not loaded</dd></div>
-            <div><dt>Calibration</dt><dd>Not implemented</dd></div>
+            <div><dt>Image</dt><dd id="image-details">Not loaded</dd></div>
+            <div><dt>Calibration</dt><dd id="calibration-status">Disabled</dd></div>
             <div><dt>Hole center</dt><dd>Not implemented</dd></div>
             <div><dt>Identity status</dt><dd id="identity-status">Not checked</dd></div>
+            <div><dt>Zoom</dt><dd id="zoom-status">—</dd></div>
+            <div><dt>Cursor image X/Y</dt><dd id="cursor-status">Outside image</dd></div>
           </dl>
           <label for="source-id-input">Test source ID</label>
           <div class="source-loader">
             <input id="source-id-input" type="text" placeholder="RIFLE_SRC_0001">
-            <button id="load-source" type="button">Load source</button>
+            <button id="load-source" type="button">Load</button>
           </div>
+          <div class="control-grid" aria-label="Canvas controls">
+            <button id="fit-view" type="button" disabled>Fit</button>
+            <button id="one-to-one" type="button" disabled>100% / 1:1</button>
+            <button id="zoom-in" type="button" disabled>Zoom +</button>
+            <button id="zoom-out" type="button" disabled>Zoom −</button>
+            <button id="pan-mode" type="button" aria-pressed="false" disabled>Pan mode</button>
+            <button id="calibration-mode" type="button" aria-pressed="false" disabled>Calibration mode</button>
+            <button id="undo-point" type="button" disabled>Undo last point</button>
+            <button id="clear-points" type="button" disabled>Clear points</button>
+          </div>
+          <p class="control-help">In Calibration mode, click the image to add 5–8 boundary points. In Pan mode, drag to pan. Ellipse fit: not implemented yet.</p>
           <button type="button" disabled>Save annotation</button>
           <button type="button" disabled>Next image</button>
         </aside>
       </section>
     </main>
+    <script src="/static/canvas_transform.js"></script>
     <script src="/static/labeler.js"></script>
   </body>
 </html>
