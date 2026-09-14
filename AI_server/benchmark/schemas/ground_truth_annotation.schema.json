@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ground_truth_annotation.schema.json",
+  "title": "Ground Truth Annotation Pass",
+  "description": "Append-only, human-confirmed geometry annotation. source_id is not the annotation primary key; multiple independent passes are allowed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "annotation_id",
+    "source_id",
+    "image_sha256",
+    "annotation_pass",
+    "labeler_id",
+    "annotation_timestamp_utc",
+    "rule_set_id",
+    "software_version",
+    "image_width_px",
+    "image_height_px",
+    "calibration_method",
+    "calibration_reference_diameter_mm",
+    "calibration_points",
+    "calibration_center_x_px",
+    "calibration_center_y_px",
+    "calibration_radius_x_px",
+    "calibration_radius_y_px",
+    "calibration_rotation_deg",
+    "calibration_fit_residual_px",
+    "bull_center_x_px",
+    "bull_center_y_px",
+    "manual_visual_bull_center_x_px",
+    "manual_visual_bull_center_y_px",
+    "hole_center_x_px",
+    "hole_center_y_px",
+    "hole_boundary_points",
+    "center_distance_px",
+    "center_distance_mm",
+    "mm_per_pixel_x",
+    "mm_per_pixel_y",
+    "perspective_status",
+    "label_quality",
+    "review_status",
+    "derived_score_tenths",
+    "notes"
+  ],
+  "$defs": {
+    "coordinate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x_px", "y_px"],
+      "properties": {
+        "x_px": { "type": "number" },
+        "y_px": { "type": "number" }
+      }
+    },
+    "nullable_number": {
+      "type": ["number", "null"]
+    }
+  },
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "annotation_id": { "type": "string", "minLength": 1 },
+    "source_id": { "type": "string", "minLength": 1 },
+    "image_sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+    "annotation_pass": { "type": "string", "enum": ["A", "B"] },
+    "labeler_id": { "type": "string", "minLength": 1 },
+    "annotation_timestamp_utc": { "type": "string", "format": "date-time" },
+    "rule_set_id": { "type": "string", "minLength": 1 },
+    "software_version": { "type": "string", "minLength": 1 },
+    "image_width_px": { "type": "integer", "minimum": 1 },
+    "image_height_px": { "type": "integer", "minimum": 1 },
+    "calibration_method": { "const": "human_selected_points_then_ellipse_fit" },
+    "calibration_reference_diameter_mm": { "type": "number", "exclusiveMinimum": 0 },
+    "calibration_points": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/coordinate" }
+    },
+    "calibration_center_x_px": { "$ref": "#/$defs/nullable_number" },
+    "calibration_center_y_px": { "$ref": "#/$defs/nullable_number" },
+    "calibration_radius_x_px": { "$ref": "#/$defs/nullable_number" },
+    "calibration_radius_y_px": { "$ref": "#/$defs/nullable_number" },
+    "calibration_rotation_deg": { "$ref": "#/$defs/nullable_number" },
+    "calibration_fit_residual_px": { "$ref": "#/$defs/nullable_number" },
+    "bull_center_x_px": { "$ref": "#/$defs/nullable_number" },
+    "bull_center_y_px": { "$ref": "#/$defs/nullable_number" },
+    "manual_visual_bull_center_x_px": { "$ref": "#/$defs/nullable_number" },
+    "manual_visual_bull_center_y_px": { "$ref": "#/$defs/nullable_number" },
+    "hole_center_x_px": { "$ref": "#/$defs/nullable_number" },
+    "hole_center_y_px": { "$ref": "#/$defs/nullable_number" },
+    "hole_boundary_points": {
+      "type": ["array", "null"],
+      "items": { "$ref": "#/$defs/coordinate" }
+    },
+    "center_distance_px": { "$ref": "#/$defs/nullable_number" },
+    "center_distance_mm": { "$ref": "#/$defs/nullable_number" },
+    "mm_per_pixel_x": { "$ref": "#/$defs/nullable_number" },
+    "mm_per_pixel_y": { "$ref": "#/$defs/nullable_number" },
+    "perspective_status": {
+      "type": "string",
+      "enum": ["circular", "elliptical_moderate", "extreme_needs_review", "excluded"]
+    },
+    "label_quality": {
+      "type": "string",
+      "enum": ["good", "usable", "ambiguous", "poor"]
+    },
+    "review_status": {
+      "type": "string",
+      "enum": ["unreviewed", "needs_review", "verified", "disputed", "excluded"]
+    },
+    "derived_score_tenths": { "type": ["integer", "null"], "minimum": 0, "maximum": 109 },
+    "notes": { "type": "string" }
+  }
+}

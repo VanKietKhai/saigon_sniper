@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ground_truth_consensus.schema.json",
+  "title": "Ground Truth Consensus",
+  "description": "Separate reviewed/derived consensus layer. It never overwrites append-only raw annotation passes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "consensus_id",
+    "source_id",
+    "image_sha256",
+    "accepted_annotation_ids",
+    "rule_set_id",
+    "consensus_status",
+    "reviewer_id",
+    "review_timestamp_utc",
+    "bull_center_x_px",
+    "bull_center_y_px",
+    "hole_center_x_px",
+    "hole_center_y_px",
+    "center_distance_mm",
+    "reference_score_tenths",
+    "notes"
+  ],
+  "$defs": {
+    "nullable_number": { "type": ["number", "null"] }
+  },
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "consensus_id": { "type": "string", "minLength": 1 },
+    "source_id": { "type": "string", "minLength": 1 },
+    "image_sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+    "accepted_annotation_ids": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "rule_set_id": { "type": "string", "minLength": 1 },
+    "consensus_status": {
+      "type": "string",
+      "enum": ["unreviewed", "verified", "disputed", "excluded"]
+    },
+    "reviewer_id": { "type": ["string", "null"] },
+    "review_timestamp_utc": { "type": ["string", "null"], "format": "date-time" },
+    "bull_center_x_px": { "$ref": "#/$defs/nullable_number" },
+    "bull_center_y_px": { "$ref": "#/$defs/nullable_number" },
+    "hole_center_x_px": { "$ref": "#/$defs/nullable_number" },
+    "hole_center_y_px": { "$ref": "#/$defs/nullable_number" },
+    "center_distance_mm": { "$ref": "#/$defs/nullable_number" },
+    "reference_score_tenths": { "type": ["integer", "null"], "minimum": 0, "maximum": 109 },
+    "notes": { "type": "string" }
+  }
+}
