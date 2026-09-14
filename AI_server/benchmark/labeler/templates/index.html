@@ -1,66 +1,66 @@
 <!doctype html>
-<html lang="en">
+<html lang="vi">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Saigon Sniper Ground Truth Labeler</title>
+    <title>Công cụ gán nhãn Ground Truth Saigon Sniper</title>
     <link rel="stylesheet" href="/static/labeler.css">
   </head>
   <body>
     <main class="labeler-shell">
       <header>
         <p class="eyebrow">R1.3D V1</p>
-        <h1>Saigon Sniper Ground Truth Labeler</h1>
-        <p class="stage">Identity-verified JPG inspection and transient calibration-point capture.</p>
+        <h1>Công cụ gán nhãn Ground Truth Saigon Sniper</h1>
+        <p class="stage">Mở ảnh JPG đã xác minh và chọn các điểm hiệu chuẩn tạm thời.</p>
       </header>
 
-      <section class="workspace" aria-label="Labeling scaffold">
+      <section class="workspace" aria-label="Khu vực gán nhãn">
         <div class="canvas-stage" id="canvas-stage">
-          <canvas id="image-canvas" aria-label="Verified source image canvas"></canvas>
-          <span id="image-message">No verified image loaded</span>
+          <canvas id="image-canvas" aria-label="Khung hiển thị ảnh nguồn đã xác minh"></canvas>
+          <span id="image-message">Chưa mở ảnh đã xác minh</span>
         </div>
         <aside class="annotation-panel">
           <dl>
-            <div><dt>Dataset configured</dt><dd id="dataset-configured">Checking...</dd></div>
-            <div><dt>Manifest records</dt><dd id="manifest-record-count">Checking...</dd></div>
-            <div><dt>Source ID</dt><dd id="source-id-status">Not loaded</dd></div>
-            <div><dt>Image</dt><dd id="image-details">Not loaded</dd></div>
-            <div><dt>Calibration</dt><dd id="calibration-status">Disabled</dd></div>
-            <div><dt>Calibration reference</dt><dd id="calibration-reference">Loading frozen rule…</dd></div>
-            <div><dt>Ellipse fit</dt><dd id="fit-status">Not fitted</dd></div>
-            <div><dt>Fit details</dt><dd id="fit-details">—</dd></div>
-            <div><dt>Hole center</dt><dd id="hole-center-status">Unavailable until calibration accepted</dd></div>
-            <div><dt>Provisional derivation</dt><dd id="derivation-status">Not derived</dd></div>
-            <div><dt>Derivation details</dt><dd id="derivation-details">—</dd></div>
-            <div><dt>Identity status</dt><dd id="identity-status">Not checked</dd></div>
-            <div><dt>Zoom</dt><dd id="zoom-status">—</dd></div>
-            <div><dt>Cursor image X/Y</dt><dd id="cursor-status">Outside image</dd></div>
+            <div><dt>Thư mục dữ liệu</dt><dd id="dataset-configured">Đang kiểm tra...</dd></div>
+            <div><dt>Số bản ghi manifest</dt><dd id="manifest-record-count">Đang kiểm tra...</dd></div>
+            <div><dt>Mã ảnh</dt><dd id="source-id-status">Chưa mở</dd></div>
+            <div><dt>Ảnh</dt><dd id="image-details">Chưa mở</dd></div>
+            <div><dt>Điểm hiệu chuẩn</dt><dd id="calibration-status">Chưa kích hoạt</dd></div>
+            <div><dt>Chuẩn hiệu chuẩn</dt><dd id="calibration-reference">Đang tải quy tắc cố định…</dd></div>
+            <div><dt>Trạng thái khớp</dt><dd id="fit-status">Chưa khớp</dd></div>
+            <div><dt>Chi tiết khớp</dt><dd id="fit-details">—</dd></div>
+            <div><dt>Tâm lỗ đạn</dt><dd id="hole-center-status">Vui lòng xác nhận hiệu chuẩn trước khi chọn tâm lỗ đạn.</dd></div>
+            <div><dt>Kết quả tạm tính</dt><dd id="derivation-status">Chưa tính</dd></div>
+            <div><dt>Chi tiết kết quả</dt><dd id="derivation-details">—</dd></div>
+            <div><dt>Trạng thái xác minh</dt><dd id="identity-status">Chưa kiểm tra</dd></div>
+            <div><dt>Mức phóng</dt><dd id="zoom-status">—</dd></div>
+            <div><dt>Tọa độ con trỏ X/Y</dt><dd id="cursor-status">Ngoài vùng ảnh</dd></div>
           </dl>
-          <label for="source-id-input">Test source ID</label>
+          <label for="source-id-input">Mã ảnh cần mở</label>
           <div class="source-loader">
             <input id="source-id-input" type="text" placeholder="RIFLE_SRC_0001">
-            <button id="load-source" type="button">Load</button>
+            <button id="load-source" type="button">Mở ảnh</button>
           </div>
-          <div class="control-grid" aria-label="Canvas controls">
-            <button id="fit-view" type="button" disabled>Fit</button>
-            <button id="one-to-one" type="button" disabled>100% / 1:1</button>
-            <button id="zoom-in" type="button" disabled>Zoom +</button>
-            <button id="zoom-out" type="button" disabled>Zoom −</button>
-            <button id="pan-mode" type="button" aria-pressed="false" disabled>Pan mode</button>
-            <button id="calibration-mode" type="button" aria-pressed="false" disabled>Calibration mode</button>
-            <button id="undo-point" type="button" disabled>Undo last point</button>
-            <button id="clear-points" type="button" disabled>Clear points</button>
-            <button id="fit-ellipse" type="button" disabled>Fit ellipse</button>
-            <button id="accept-calibration" type="button" disabled>Accept calibration</button>
-            <button id="redo-calibration" type="button" disabled>Redo calibration</button>
-            <button id="hole-center-mode" type="button" aria-pressed="false" disabled>Hole Center mode</button>
-            <button id="clear-hole-center" type="button" disabled>Clear hole center</button>
-            <button id="derive-score" type="button" disabled>Derive Score</button>
+          <div class="control-grid" aria-label="Điều khiển khung ảnh">
+            <button id="fit-view" type="button" disabled>Vừa khung</button>
+            <button id="one-to-one" type="button" disabled>100%</button>
+            <button id="zoom-in" type="button" disabled>Phóng to</button>
+            <button id="zoom-out" type="button" disabled>Thu nhỏ</button>
+            <button id="pan-mode" type="button" aria-pressed="false" disabled>Di chuyển</button>
+            <button id="calibration-mode" type="button" aria-pressed="false" disabled>Hiệu chuẩn</button>
+            <button id="undo-point" type="button" disabled>Hoàn tác</button>
+            <button id="clear-points" type="button" disabled>Xóa điểm hiệu chuẩn</button>
+            <button id="fit-ellipse" type="button" disabled>Khớp elip</button>
+            <button id="accept-calibration" type="button" disabled>Xác nhận hiệu chuẩn</button>
+            <button id="redo-calibration" type="button" disabled>Làm lại hiệu chuẩn</button>
+            <button id="hole-center-mode" type="button" aria-pressed="false" disabled>Chọn tâm lỗ đạn</button>
+            <button id="clear-hole-center" type="button" disabled>Xóa tâm lỗ đạn</button>
+            <button id="derive-score" type="button" disabled>Tính điểm tạm tính</button>
           </div>
-          <p class="control-help">After accepting calibration, use Hole Center mode for one human-confirmed click. A replacement click requires confirmation. Hole boundary points remain deferred.</p>
-          <p class="provisional-notice">PROVISIONAL — NOT YET SAVED GROUND TRUTH</p>
-          <button type="button" disabled>Save annotation</button>
-          <button type="button" disabled>Next image</button>
+          <p class="control-help">Chọn từ 5 đến 8 điểm trên mép ngoài vùng đen / vòng 4 của bia. Sau khi xác nhận hiệu chuẩn, phóng lớn ảnh và chọn chính xác tâm lỗ đạn. Khi chọn lại sẽ cần xác nhận. Điểm rìa lỗ đạn được xử lý ở giai đoạn sau.</p>
+          <p class="provisional-notice">TẠM TÍNH — CHƯA LƯU DỮ LIỆU GROUND TRUTH</p>
+          <button type="button" disabled>Lưu chú thích</button>
+          <button type="button" disabled>Ảnh tiếp theo</button>
         </aside>
       </section>
     </main>

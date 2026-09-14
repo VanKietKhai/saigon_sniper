@@ -43,6 +43,36 @@ const controls = {
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 8;
 const FIT_MARGIN_CSS_PX = 24;
+const statusText = {
+  verified: "Đã xác minh",
+  unsupported_format: "Định dạng ảnh chưa được hỗ trợ",
+  dataset_not_configured: "Chưa cấu hình thư mục dữ liệu",
+  file_missing: "Không tìm thấy tệp ảnh",
+  hash_mismatch: "Ảnh không khớp mã xác minh SHA-256",
+  unsafe_path: "Đường dẫn ảnh không hợp lệ",
+  source_not_found: "Không tìm thấy mã ảnh",
+  verified_image_load_failed: "Không thể giải mã ảnh đã xác minh",
+  stale_source_result_rejected: "Kết quả không còn thuộc ảnh hiện tại",
+  provisional_derivation_failed: "Không thể tính điểm tạm tính",
+  ellipse_fit_failed: "Không thể khớp elip từ các điểm đã chọn",
+  invalid_calibration_points: "Các điểm hiệu chuẩn không hợp lệ",
+  invalid_human_geometry: "Không thể tính điểm từ hình học đã chọn",
+};
+const fitStateText = {
+  not_fitted: "Chưa khớp",
+  fitting: "Đang khớp…",
+  fitted: "Đã khớp",
+  accepted: "Đã xác nhận",
+  needs_redo: "Cần làm lại",
+};
+
+function displayStatus(value, fallback = "Lỗi không xác định") {
+  return statusText[value] || fallback;
+}
+
+function displayFitState(value) {
+  return fitStateText[value] || "Không rõ";
+}
 const state = {
   sourceId: null,
   image: null,
@@ -64,17 +94,17 @@ const state = {
 
 async function loadHealth() {
   const response = await fetch("/health");
-  if (!response.ok) throw new Error("Health request failed");
+  if (!response.ok) throw new Error("health_request_failed");
   const health = await response.json();
-  datasetConfigured.textContent = health.dataset_configured ? "Yes" : "No";
+  datasetConfigured.textContent = health.dataset_configured ? "Đã cấu hình" : "Chưa cấu hình";
   manifestRecordCount.textContent = String(health.manifest_record_count);
 }
 
 async function loadCalibrationReference() {
   const response = await fetch("/api/calibration/reference");
-  if (!response.ok) throw new Error("Frozen calibration reference unavailable");
+  if (!response.ok) throw new Error("calibration_reference_unavailable");
   state.calibrationReference = await response.json();
-  calibrationReference.textContent = `${state.calibrationReference.reference_diameter_mm} mm outer black / 4-ring boundary`;
+  calibrationReference.textContent = `${String(state.calibrationReference.reference_diameter_mm).replace(".", ",")} mm mép ngoài vùng đen / vòng 4`;
 }
 
 function invalidateFit(nextState = "not_fitted") {
@@ -104,8 +134,8 @@ function resetImage(message) {
   invalidateFit();
   imageMessage.hidden = false;
   imageMessage.textContent = message;
-  imageDetails.textContent = "Not loaded";
-  cursorStatus.textContent = "Outside image";
+  imageDetails.textContent = "Chưa mở";
+  cursorStatus.textContent = "Ngoài vùng ảnh";
   updateControls();
   render();
 }
@@ -223,22 +253,22 @@ function updateControls() {
   controls.calibration.setAttribute("aria-pressed", String(state.mode === "calibration"));
   controls.holeCenter.setAttribute("aria-pressed", String(state.mode === "hole_center"));
   calibrationStatus.textContent = ready
-    ? `${state.calibrationPoints.length} / 8 points${state.calibrationPoints.length >= 5 ? " (ready to fit)" : ""}`
-    : "Disabled until verified JPG decode";
-  fitStatus.textContent = state.fitState.replaceAll("_", " ");
+    ? `${state.calibrationPoints.length} / 8 điểm${state.calibrationPoints.length >= 5 ? " (có thể khớp elip)" : " (cần ít nhất 5 điểm)"}`
+    : "Chưa kích hoạt: cần ảnh JPG đã xác minh";
+  fitStatus.textContent = displayFitState(state.fitState);
   fitDetails.textContent = state.ellipseFit
-    ? `Center ${state.ellipseFit.center_x_px.toFixed(2)}, ${state.ellipseFit.center_y_px.toFixed(2)} px · Major ${state.ellipseFit.radius_major_px.toFixed(2)} px · Minor ${state.ellipseFit.radius_minor_px.toFixed(2)} px · Rotation ${state.ellipseFit.rotation_deg.toFixed(2)}° · RMS ${state.ellipseFit.calibration_fit_residual_px.toFixed(3)} px · Max ${state.ellipseFit.max_radial_residual_px.toFixed(3)} px · Axis ratio ${state.ellipseFit.axis_ratio.toFixed(4)} · ${state.ellipseFit.point_count} points`
-    : state.fitError || "—";
+    ? `Tâm bia ${state.ellipseFit.center_x_px.toFixed(2)}, ${state.ellipseFit.center_y_px.toFixed(2)} px · Bán kính trục lớn ${state.ellipseFit.radius_major_px.toFixed(2)} px · Bán kính trục nhỏ ${state.ellipseFit.radius_minor_px.toFixed(2)} px · Góc xoay ${state.ellipseFit.rotation_deg.toFixed(2)}° · Sai số RMS ${state.ellipseFit.calibration_fit_residual_px.toFixed(3)} px · Sai số lớn nhất ${state.ellipseFit.max_radial_residual_px.toFixed(3)} px · Tỷ lệ trục ${state.ellipseFit.axis_ratio.toFixed(4)} · ${state.ellipseFit.point_count} điểm`
+    : state.fitError ? "Không thể khớp elip từ các điểm đã chọn" : "—";
   holeCenterStatus.textContent = !holeCenterReady
-    ? "Unavailable until calibration accepted"
+    ? "Vui lòng xác nhận hiệu chuẩn trước khi chọn tâm lỗ đạn."
     : state.holeCenter
-      ? `X ${state.holeCenter.x_px.toFixed(2)} px · Y ${state.holeCenter.y_px.toFixed(2)} px (human-confirmed, transient)`
-      : "Not set";
+      ? `X ${state.holeCenter.x_px.toFixed(2)} px · Y ${state.holeCenter.y_px.toFixed(2)} px (đã chọn thủ công, tạm thời)`
+      : "Chưa chọn";
   derivationStatus.textContent = state.derivedResult
-    ? "PROVISIONAL — NOT YET SAVED GROUND TRUTH"
-    : state.derivationError || "Not derived";
+    ? "TẠM TÍNH — CHƯA LƯU DỮ LIỆU GROUND TRUTH"
+    : state.derivationError ? "Không thể tính điểm tạm tính" : "Chưa tính";
   derivationDetails.textContent = state.derivedResult
-    ? `Rule ${state.derivedResult.rule_set_id} · Target ${state.derivedResult.target_center_x_px.toFixed(2)}, ${state.derivedResult.target_center_y_px.toFixed(2)} px · Hole ${state.derivedResult.hole_center_x_px.toFixed(2)}, ${state.derivedResult.hole_center_y_px.toFixed(2)} px · Major scale ${state.derivedResult.mm_per_px_major.toFixed(6)} mm/px · Minor scale ${state.derivedResult.mm_per_px_minor.toFixed(6)} mm/px · Distance ${state.derivedResult.center_distance_mm.toFixed(4)} mm · ${state.derivedResult.is_miss ? "0.0 / MISS" : `Provisional score ${state.derivedResult.provisional_score.toFixed(1)}`}`
+    ? `Bộ quy tắc ${state.derivedResult.rule_set_id} · Tâm bia ${state.derivedResult.target_center_x_px.toFixed(2)}, ${state.derivedResult.target_center_y_px.toFixed(2)} px · Tâm lỗ đạn ${state.derivedResult.hole_center_x_px.toFixed(2)}, ${state.derivedResult.hole_center_y_px.toFixed(2)} px · Tỷ lệ trục lớn ${state.derivedResult.mm_per_px_major.toFixed(6)} mm/px · Tỷ lệ trục nhỏ ${state.derivedResult.mm_per_px_minor.toFixed(6)} mm/px · Khoảng cách tâm bia – tâm lỗ đạn ${state.derivedResult.center_distance_mm.toFixed(4)} mm · ${state.derivedResult.is_miss ? "0,0 / Ngoài vùng tính điểm" : `Điểm Ground Truth tạm tính ${state.derivedResult.provisional_score.toFixed(1)}`}`
     : "—";
   zoomStatus.textContent = ready ? `${Math.round(state.view.scale * 100)}%` : "—";
   canvas.style.cursor = state.mode === "pan" ? "grab" : (state.mode === "calibration" || state.mode === "hole_center") ? "crosshair" : "default";
@@ -297,7 +327,7 @@ function clearTransientPoints() {
 function setHoleCenter(imagePoint) {
   if (!imagePoint || !Number.isFinite(imagePoint.x) || !Number.isFinite(imagePoint.y)
     || imagePoint.x < 0 || imagePoint.y < 0) return;
-  if (state.holeCenter && !window.confirm("Replace the existing transient hole center?")) return;
+  if (state.holeCenter && !window.confirm("Bạn có muốn chọn lại tâm lỗ đạn hiện tại không?")) return;
   state.holeCenter = { x_px: imagePoint.x, y_px: imagePoint.y };
   invalidateDerived();
   updateControls();
@@ -307,7 +337,7 @@ function setHoleCenter(imagePoint) {
 async function deriveScore() {
   if (!state.sourceId || !state.holeCenter || !state.ellipseFit || state.fitState !== "accepted") return;
   invalidateDerived();
-  derivationStatus.textContent = "Deriving provisional result…";
+  derivationStatus.textContent = "Đang tính điểm tạm tính…";
   try {
     const response = await fetch("/api/derive", {
       method: "POST",
@@ -319,11 +349,11 @@ async function deriveScore() {
       }),
     });
     const payload = await response.json();
-    if (!response.ok) throw new Error(payload.detail?.message || "provisional_derivation_failed");
+    if (!response.ok) throw new Error(payload.detail?.status || "provisional_derivation_failed");
     if (payload.result.source_id !== state.sourceId) throw new Error("stale_source_result_rejected");
     state.derivedResult = payload.result;
   } catch (error) {
-    state.derivationError = error.message;
+    state.derivationError = displayStatus(error.message);
   }
   updateControls();
 }
@@ -340,12 +370,12 @@ async function fitEllipse() {
       body: JSON.stringify({ points: state.calibrationPoints }),
     });
     const payload = await response.json();
-    if (!response.ok) throw new Error(payload.detail?.message || "ellipse_fit_failed");
+    if (!response.ok) throw new Error(payload.detail?.status || "ellipse_fit_failed");
     state.ellipseFit = payload.ellipse;
     state.fitState = "fitted";
   } catch (error) {
     invalidateFit("needs_redo");
-    state.fitError = error.message;
+    state.fitError = displayStatus(error.message);
   }
   updateControls();
   render();
@@ -353,7 +383,7 @@ async function fitEllipse() {
 
 function redoCalibration() {
   if (state.calibrationPoints.length === 0) return;
-  if (window.confirm("Redo calibration and discard transient points and fitted ellipse?")) {
+  if (window.confirm("Bạn có muốn thực hiện lại phần hiệu chuẩn không? Các điểm tạm thời và elip đã khớp sẽ bị hủy.")) {
     clearTransientPoints();
     state.fitState = "needs_redo";
     updateControls();
@@ -363,23 +393,23 @@ function redoCalibration() {
 async function loadSource() {
   const sourceId = sourceIdInput.value.trim();
   if (!sourceId) {
-    identityStatus.textContent = "Enter a source ID";
+    identityStatus.textContent = "Nhập mã ảnh";
     return;
   }
 
   if ((state.calibrationPoints.length > 0 || state.ellipseFit || state.holeCenter) && sourceId !== state.sourceId
-    && !window.confirm("Changing source discards transient calibration points. Continue?")) return;
+    && !window.confirm("Bạn có muốn chuyển sang ảnh khác? Các thao tác chưa lưu trên ảnh hiện tại sẽ bị hủy.")) return;
   if (sourceId !== state.sourceId) clearTransientPoints();
-  resetImage("Checking source identity...");
+  resetImage("Đang kiểm tra trạng thái xác minh ảnh…");
   try {
     const response = await fetch(`/api/sources/${encodeURIComponent(sourceId)}`);
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.detail?.status || "source_not_found");
 
     sourceIdStatus.textContent = payload.source.source_id;
-    identityStatus.textContent = payload.identity.status;
+    identityStatus.textContent = displayStatus(payload.identity.status);
     if (payload.identity.status !== "verified") {
-      resetImage(`Image unavailable: ${payload.identity.status}`);
+      resetImage(`Không thể mở ảnh: ${displayStatus(payload.identity.status)}`);
       return;
     }
 
@@ -394,13 +424,13 @@ async function loadSource() {
       fitView();
     };
     verifiedImage.onerror = () => {
-      identityStatus.textContent = "verified_image_load_failed";
-      resetImage("Verified image could not be decoded");
+      identityStatus.textContent = displayStatus("verified_image_load_failed");
+      resetImage("Không thể giải mã ảnh đã xác minh");
     };
     verifiedImage.src = `/api/sources/${encodeURIComponent(sourceId)}/image`;
   } catch (error) {
-    identityStatus.textContent = error.message;
-    resetImage("Image unavailable");
+    identityStatus.textContent = displayStatus(error.message);
+    resetImage("Không thể mở ảnh");
   }
 }
 
@@ -433,7 +463,7 @@ controls.undo.addEventListener("click", () => {
   render();
 });
 controls.clear.addEventListener("click", () => {
-  if (state.calibrationPoints.length > 0 && window.confirm("Clear all transient calibration points?")) clearTransientPoints();
+  if (state.calibrationPoints.length > 0 && window.confirm("Bạn có muốn bỏ các điểm hiệu chuẩn hiện tại không?")) clearTransientPoints();
 });
 controls.fitEllipse.addEventListener("click", fitEllipse);
 controls.accept.addEventListener("click", () => {
@@ -448,7 +478,7 @@ controls.holeCenter.addEventListener("click", () => {
   updateControls();
 });
 controls.clearHoleCenter.addEventListener("click", () => {
-  if (state.holeCenter && window.confirm("Clear the transient hole center?")) {
+  if (state.holeCenter && window.confirm("Bạn có muốn xóa tâm lỗ đạn đã chọn không?")) {
     clearHoleCenter();
     updateControls();
     render();
@@ -470,12 +500,12 @@ canvas.addEventListener("pointermove", (event) => {
   state.pointerImage = imagePointFromEvent(event);
   cursorStatus.textContent = state.pointerImage
     ? `X ${state.pointerImage.x.toFixed(2)} px · Y ${state.pointerImage.y.toFixed(2)} px`
-    : "Outside image";
+    : "Ngoài vùng ảnh";
   render();
 });
 canvas.addEventListener("pointerleave", () => {
   state.pointerImage = null;
-  cursorStatus.textContent = "Outside image";
+  cursorStatus.textContent = "Ngoài vùng ảnh";
   render();
 });
 canvas.addEventListener("pointerdown", (event) => {
@@ -489,11 +519,11 @@ canvas.addEventListener("pointerdown", (event) => {
   if (state.mode === "calibration") {
     const imagePoint = imagePointFromEvent(event);
     if (!imagePoint) {
-      calibrationStatus.textContent = "Outside image: point not added";
+      calibrationStatus.textContent = "Con trỏ nằm ngoài vùng ảnh: không thêm điểm";
       return;
     }
     if (state.calibrationPoints.length >= 8) {
-      calibrationStatus.textContent = "Maximum 8 calibration points reached";
+      calibrationStatus.textContent = "Chỉ được chọn tối đa 8 điểm hiệu chuẩn";
       return;
     }
     state.calibrationPoints.push({ x_px: imagePoint.x, y_px: imagePoint.y });
@@ -504,7 +534,7 @@ canvas.addEventListener("pointerdown", (event) => {
   if (state.mode === "hole_center") {
     const imagePoint = imagePointFromEvent(event);
     if (!imagePoint) {
-      holeCenterStatus.textContent = "Outside image: hole center not set";
+      holeCenterStatus.textContent = "Con trỏ nằm ngoài vùng ảnh: chưa chọn tâm lỗ đạn";
       return;
     }
     setHoleCenter(imagePoint);
@@ -519,9 +549,9 @@ canvas.addEventListener("pointerup", (event) => {
 new ResizeObserver(() => render()).observe(canvasStage);
 render();
 loadHealth().catch(() => {
-  datasetConfigured.textContent = "Unavailable";
-  manifestRecordCount.textContent = "Unavailable";
+  datasetConfigured.textContent = "Không khả dụng";
+  manifestRecordCount.textContent = "Không khả dụng";
 });
 loadCalibrationReference().catch(() => {
-  calibrationReference.textContent = "Frozen reference unavailable";
+  calibrationReference.textContent = "Không tải được quy tắc cố định";
 });
