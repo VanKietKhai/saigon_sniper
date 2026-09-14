@@ -4,9 +4,11 @@ This module intentionally provides no image loading, annotation persistence,
 scoring, or automated computer-vision behavior in R1.3D.1.
 """
 
+import json
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -15,17 +17,30 @@ from .manifest import (
     SourceNotFoundError,
     dataset_root_from_environment,
 )
+from .ellipse import EllipseFitError, fit_human_calibration_ellipse
 
 
 LABELER_ROOT = Path(__file__).resolve().parent
 MANIFEST_PATH = LABELER_ROOT.parent / "rifle_source_manifest.csv"
+REFERENCE_RULES_PATH = LABELER_ROOT.parent / "reference_rules.json"
 source_manifest = SourceManifest.load(MANIFEST_PATH)
+with REFERENCE_RULES_PATH.open(encoding="utf-8") as reference_rules_file:
+    reference_rules = json.load(reference_rules_file)
 app = FastAPI(title="Saigon Sniper Ground Truth Labeler", version="v1")
 app.mount(
     "/static",
     StaticFiles(directory=LABELER_ROOT / "static"),
     name="static",
 )
+
+
+class CalibrationPoint(BaseModel):
+    x_px: float
+    y_px: float
+
+
+class CalibrationFitRequest(BaseModel):
+    points: list[CalibrationPoint]
 
 
 @app.get("/health")
@@ -38,6 +53,34 @@ async def health() -> dict[str, object]:
         "manifest_record_count": source_manifest.record_count,
         "dataset_configured": dataset_root_from_environment() is not None,
     }
+
+
+@app.get("/api/calibration/reference")
+async def calibration_reference() -> dict[str, object]:
+    """Return only frozen calibration metadata; no image or model data."""
+    calibration = reference_rules["labeler_calibration"]
+    return {
+        "rule_set_id": reference_rules["rule_set_id"],
+        "reference": calibration["reference"],
+        "reference_diameter_mm": calibration["reference_diameter_mm"],
+        "points_min": calibration["points_min"],
+        "points_max": calibration["points_max"],
+    }
+
+
+@app.post("/api/calibration/fit")
+async def fit_calibration(request: CalibrationFitRequest) -> dict[str, object]:
+    """Fit an ellipse only to the browser-supplied human point geometry."""
+    try:
+        fitted = fit_human_calibration_ellipse(
+            [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.points]
+        )
+    except EllipseFitError as error:
+        raise HTTPException(
+            status_code=422,
+            detail={"status": "invalid_calibration_points", "message": str(error)},
+        ) from error
+    return {"status": "fitted", "ellipse": fitted.public()}
 
 
 @app.get("/", response_class=FileResponse)

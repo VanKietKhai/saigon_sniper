@@ -88,3 +88,24 @@ minimum is reached, and supports transient undo and confirmed clear. Changing
 source requires confirmation before existing transient points are discarded.
 No points are persisted, and ellipse fitting, hole-center annotation, scoring,
 and annotations remain unimplemented.
+
+## R1.3D.4 human calibration fit
+
+With 5–8 human-selected image-space calibration points, the labeler posts only
+those coordinates to its local geometry endpoint. OpenCV `fitEllipse` is used
+solely to fit that supplied geometry; it never reads image pixels to choose or
+adjust a ring. The result is normalized to `radius_major_px >=
+radius_minor_px`, with `rotation_deg` as the major-axis orientation in
+`[0, 180)`.
+
+Fit quality is a radial RMS residual in pixels. Each selected point is
+transformed into ellipse-local coordinates, projected to the ellipse along its
+center-to-point ray, and measured to that radial intersection. It is not an
+orthogonal nearest-distance residual. The UI also reports maximum radial
+residual and the non-authoritative `minor_radius / major_radius` axis ratio.
+
+The fitted ellipse center is the transient V1 target center. The overlay and
+center marker are transformed from original-image coordinates on every render,
+so zoom, pan, Fit, and 100% view cannot mutate the fit. Fit acceptance and
+redo are transient only: no annotation, score, physical scale, or hole center
+is stored or calculated.

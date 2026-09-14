@@ -15,6 +15,9 @@ const canvasStage = document.querySelector("#canvas-stage");
 const context = canvas.getContext("2d");
 const imageDetails = document.querySelector("#image-details");
 const calibrationStatus = document.querySelector("#calibration-status");
+const calibrationReference = document.querySelector("#calibration-reference");
+const fitStatus = document.querySelector("#fit-status");
+const fitDetails = document.querySelector("#fit-details");
 const zoomStatus = document.querySelector("#zoom-status");
 const cursorStatus = document.querySelector("#cursor-status");
 const controls = {
@@ -26,6 +29,9 @@ const controls = {
   calibration: document.querySelector("#calibration-mode"),
   undo: document.querySelector("#undo-point"),
   clear: document.querySelector("#clear-points"),
+  fitEllipse: document.querySelector("#fit-ellipse"),
+  accept: document.querySelector("#accept-calibration"),
+  redo: document.querySelector("#redo-calibration"),
 };
 
 const MIN_SCALE = 0.05;
@@ -41,6 +47,10 @@ const state = {
   mode: "none",
   pointerImage: null,
   panStart: null,
+  ellipseFit: null,
+  fitState: "not_fitted",
+  fitError: null,
+  calibrationReference: null,
 };
 
 async function loadHealth() {
@@ -51,12 +61,26 @@ async function loadHealth() {
   manifestRecordCount.textContent = String(health.manifest_record_count);
 }
 
+async function loadCalibrationReference() {
+  const response = await fetch("/api/calibration/reference");
+  if (!response.ok) throw new Error("Frozen calibration reference unavailable");
+  state.calibrationReference = await response.json();
+  calibrationReference.textContent = `${state.calibrationReference.reference_diameter_mm} mm outer black / 4-ring boundary`;
+}
+
+function invalidateFit(nextState = "not_fitted") {
+  state.ellipseFit = null;
+  state.fitState = nextState;
+  state.fitError = null;
+}
+
 function resetImage(message) {
   state.image = null;
   state.metadata = null;
   state.verifiedAndDecoded = false;
   state.pointerImage = null;
   state.mode = "none";
+  invalidateFit();
   imageMessage.hidden = false;
   imageMessage.textContent = message;
   imageDetails.textContent = "Not loaded";
@@ -103,6 +127,30 @@ function render() {
     context.fillText(String(index + 1), display.x + 8, display.y - 8);
     context.restore();
   }
+  if (state.ellipseFit) {
+    const ellipse = state.ellipseFit;
+    const center = transforms.imageToDisplay({ x: ellipse.center_x_px, y: ellipse.center_y_px }, state.view);
+    context.save();
+    context.translate(center.x, center.y);
+    context.rotate((ellipse.rotation_deg * Math.PI) / 180);
+    context.strokeStyle = "#62d8ff";
+    context.lineWidth = 2;
+    context.setLineDash([7, 4]);
+    context.beginPath();
+    context.ellipse(0, 0, ellipse.radius_major_px * state.view.scale,
+      ellipse.radius_minor_px * state.view.scale, 0, 0, Math.PI * 2);
+    context.stroke();
+    context.setLineDash([]);
+    context.strokeStyle = "#ff5a7a";
+    context.lineWidth = 2;
+    context.beginPath();
+    context.moveTo(-9, 0);
+    context.lineTo(9, 0);
+    context.moveTo(0, -9);
+    context.lineTo(0, 9);
+    context.stroke();
+    context.restore();
+  }
   if (state.pointerImage) {
     const display = transforms.imageToDisplay(state.pointerImage, state.view);
     context.save();
@@ -123,11 +171,18 @@ function updateControls() {
   for (const control of Object.values(controls)) control.disabled = !ready;
   controls.undo.disabled = !ready || state.calibrationPoints.length === 0;
   controls.clear.disabled = !ready || state.calibrationPoints.length === 0;
+  controls.fitEllipse.disabled = !ready || state.calibrationPoints.length < 5;
+  controls.accept.disabled = !ready || state.fitState !== "fitted";
+  controls.redo.disabled = !ready || state.calibrationPoints.length === 0;
   controls.pan.setAttribute("aria-pressed", String(state.mode === "pan"));
   controls.calibration.setAttribute("aria-pressed", String(state.mode === "calibration"));
   calibrationStatus.textContent = ready
-    ? `${state.calibrationPoints.length} / 8 points${state.calibrationPoints.length >= 5 ? " (minimum reached; fit not implemented)" : ""}`
+    ? `${state.calibrationPoints.length} / 8 points${state.calibrationPoints.length >= 5 ? " (ready to fit)" : ""}`
     : "Disabled until verified JPG decode";
+  fitStatus.textContent = state.fitState.replaceAll("_", " ");
+  fitDetails.textContent = state.ellipseFit
+    ? `Center ${state.ellipseFit.center_x_px.toFixed(2)}, ${state.ellipseFit.center_y_px.toFixed(2)} px · Major ${state.ellipseFit.radius_major_px.toFixed(2)} px · Minor ${state.ellipseFit.radius_minor_px.toFixed(2)} px · Rotation ${state.ellipseFit.rotation_deg.toFixed(2)}° · RMS ${state.ellipseFit.calibration_fit_residual_px.toFixed(3)} px · Max ${state.ellipseFit.max_radial_residual_px.toFixed(3)} px · Axis ratio ${state.ellipseFit.axis_ratio.toFixed(4)} · ${state.ellipseFit.point_count} points`
+    : state.fitError || "—";
   zoomStatus.textContent = ready ? `${Math.round(state.view.scale * 100)}%` : "—";
   canvas.style.cursor = state.mode === "pan" ? "grab" : state.mode === "calibration" ? "crosshair" : "default";
 }
@@ -177,8 +232,41 @@ function imagePointFromEvent(event) {
 
 function clearTransientPoints() {
   state.calibrationPoints = [];
+  invalidateFit();
   updateControls();
   render();
+}
+
+async function fitEllipse() {
+  if (!state.verifiedAndDecoded || state.calibrationPoints.length < 5) return;
+  invalidateFit();
+  state.fitState = "fitting";
+  updateControls();
+  try {
+    const response = await fetch("/api/calibration/fit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ points: state.calibrationPoints }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail?.message || "ellipse_fit_failed");
+    state.ellipseFit = payload.ellipse;
+    state.fitState = "fitted";
+  } catch (error) {
+    invalidateFit("needs_redo");
+    state.fitError = error.message;
+  }
+  updateControls();
+  render();
+}
+
+function redoCalibration() {
+  if (state.calibrationPoints.length === 0) return;
+  if (window.confirm("Redo calibration and discard transient points and fitted ellipse?")) {
+    clearTransientPoints();
+    state.fitState = "needs_redo";
+    updateControls();
+  }
 }
 
 async function loadSource() {
@@ -188,7 +276,7 @@ async function loadSource() {
     return;
   }
 
-  if (state.calibrationPoints.length > 0 && sourceId !== state.sourceId
+  if ((state.calibrationPoints.length > 0 || state.ellipseFit) && sourceId !== state.sourceId
     && !window.confirm("Changing source discards transient calibration points. Continue?")) return;
   if (sourceId !== state.sourceId) clearTransientPoints();
   resetImage("Checking source identity...");
@@ -249,12 +337,21 @@ controls.calibration.addEventListener("click", () => {
 });
 controls.undo.addEventListener("click", () => {
   state.calibrationPoints.pop();
+  invalidateFit();
   updateControls();
   render();
 });
 controls.clear.addEventListener("click", () => {
   if (state.calibrationPoints.length > 0 && window.confirm("Clear all transient calibration points?")) clearTransientPoints();
 });
+controls.fitEllipse.addEventListener("click", fitEllipse);
+controls.accept.addEventListener("click", () => {
+  if (state.ellipseFit) {
+    state.fitState = "accepted";
+    updateControls();
+  }
+});
+controls.redo.addEventListener("click", redoCalibration);
 canvas.addEventListener("wheel", (event) => {
   if (!state.verifiedAndDecoded) return;
   event.preventDefault();
@@ -297,6 +394,7 @@ canvas.addEventListener("pointerdown", (event) => {
       return;
     }
     state.calibrationPoints.push({ x_px: imagePoint.x, y_px: imagePoint.y });
+    invalidateFit();
     updateControls();
     render();
   }
@@ -312,4 +410,7 @@ render();
 loadHealth().catch(() => {
   datasetConfigured.textContent = "Unavailable";
   manifestRecordCount.textContent = "Unavailable";
+});
+loadCalibrationReference().catch(() => {
+  calibrationReference.textContent = "Frozen reference unavailable";
 });

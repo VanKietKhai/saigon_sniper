@@ -26,6 +26,9 @@
             <div><dt>Source ID</dt><dd id="source-id-status">Not loaded</dd></div>
             <div><dt>Image</dt><dd id="image-details">Not loaded</dd></div>
             <div><dt>Calibration</dt><dd id="calibration-status">Disabled</dd></div>
+            <div><dt>Calibration reference</dt><dd id="calibration-reference">Loading frozen rule…</dd></div>
+            <div><dt>Ellipse fit</dt><dd id="fit-status">Not fitted</dd></div>
+            <div><dt>Fit details</dt><dd id="fit-details">—</dd></div>
             <div><dt>Hole center</dt><dd>Not implemented</dd></div>
             <div><dt>Identity status</dt><dd id="identity-status">Not checked</dd></div>
             <div><dt>Zoom</dt><dd id="zoom-status">—</dd></div>
@@ -45,8 +48,11 @@
             <button id="calibration-mode" type="button" aria-pressed="false" disabled>Calibration mode</button>
             <button id="undo-point" type="button" disabled>Undo last point</button>
             <button id="clear-points" type="button" disabled>Clear points</button>
+            <button id="fit-ellipse" type="button" disabled>Fit ellipse</button>
+            <button id="accept-calibration" type="button" disabled>Accept calibration</button>
+            <button id="redo-calibration" type="button" disabled>Redo calibration</button>
           </div>
-          <p class="control-help">In Calibration mode, click the image to add 5–8 boundary points. In Pan mode, drag to pan. Ellipse fit: not implemented yet.</p>
+          <p class="control-help">In Calibration mode, click the image to add 5–8 boundary points. In Pan mode, drag to pan. Fitting and acceptance are transient only; no annotation is saved.</p>
           <button type="button" disabled>Save annotation</button>
           <button type="button" disabled>Next image</button>
         </aside>
