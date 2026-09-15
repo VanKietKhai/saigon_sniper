@@ -147,3 +147,20 @@ The strict physical 25.0 mm outer radius has no epsilon extension; only decimal
 zone arithmetic uses its frozen numerical epsilon. A result is always labeled
 **PROVISIONAL — NOT YET SAVED GROUND TRUTH**. Any source, calibration, or hole
 center change clears it. No distance, scale, score, or annotation is persisted.
+
+## Precision labeling workflow
+
+For precision work, keep Browser/Page Zoom at **100%** and use the Labeler
+image zoom controls for magnification. At an effective scale of one or more
+original image pixels per CSS pixel, the canvas disables image smoothing so
+source pixels remain distinct. The optional precision loupe samples those
+original pixels with nearest-neighbor rendering; it is visual-only and cannot
+change stored coordinates.
+
+The desktop layout keeps the image viewport stationary and vertically centered
+in Fit view while the control panel scrolls independently. `W`, `A`, `S`, `D`
+and arrow keys pan the view by 60 CSS pixels; `Shift` uses 240 pixels and `Alt`
+uses 15 pixels. Holding `Space` while left-dragging temporarily pans without
+changing the selected calibration or hole-center mode. All of these controls
+change only the display transform; saved geometry remains in original-image
+pixels.

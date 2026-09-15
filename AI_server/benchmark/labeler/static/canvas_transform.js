@@ -56,6 +56,17 @@
     };
   }
 
+  function panView(view, delta) {
+    if (!Number.isFinite(delta.x) || !Number.isFinite(delta.y)) {
+      throw new Error("Canvas pan delta must be finite.");
+    }
+    return {
+      scale: view.scale,
+      panX: view.panX + delta.x,
+      panY: view.panY + delta.y,
+    };
+  }
+
   function pointsNearlyEqual(first, second) {
     return Math.abs(first.x - second.x) < EPSILON
       && Math.abs(first.y - second.y) < EPSILON;
@@ -67,6 +78,7 @@
     pointIsInsideImage,
     fitView,
     zoomAroundDisplayPoint,
+    panView,
     pointsNearlyEqual,
   };
   globalScope.LabelerCanvasTransforms = api;

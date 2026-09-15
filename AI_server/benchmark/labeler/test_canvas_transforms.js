@@ -41,7 +41,16 @@ assertPoint(
   "pointer-anchored zoom",
 );
 
-// F: devicePixelRatio never participates in CSS-space transforms.
+// F: panning is a display-only operation; original-image coordinates remain exact.
+const beforePan = { scale: 2, panX: 140, panY: -30 };
+const afterPan = transforms.panView(beforePan, { x: -180, y: 95 });
+assertPoint(
+  transforms.displayToImage(transforms.imageToDisplay(original, afterPan), afterPan),
+  original,
+  "view-only pan mapping",
+);
+
+// G: devicePixelRatio never participates in CSS-space transforms.
 const cssView = { scale: 1, panX: 12, panY: 24 };
 assertPoint(
   transforms.displayToImage({ x: 112, y: 224 }, cssView),
@@ -49,7 +58,7 @@ assertPoint(
   "retina-independent CSS coordinate mapping",
 );
 
-// G: bounds checks reject outside clicks rather than clamping them.
+// H: bounds checks reject outside clicks rather than clamping them.
 assert.strictEqual(transforms.pointIsInsideImage({ x: -0.01, y: 1 }, { width: 10, height: 10 }), false);
 assert.strictEqual(transforms.pointIsInsideImage({ x: 10, y: 1 }, { width: 10, height: 10 }), false);
 assert.strictEqual(transforms.pointIsInsideImage({ x: 9.99, y: 9.99 }, { width: 10, height: 10 }), true);

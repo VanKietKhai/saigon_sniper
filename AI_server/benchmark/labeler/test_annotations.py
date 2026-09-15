@@ -5,7 +5,8 @@ from fastapi.testclient import TestClient
 from AI_server.benchmark.labeler.app import app
 
 POINTS=[{"x_px":100,"y_px":50},{"x_px":135,"y_px":65},{"x_px":150,"y_px":100},{"x_px":135,"y_px":135},{"x_px":100,"y_px":150},{"x_px":65,"y_px":135},{"x_px":50,"y_px":100},{"x_px":65,"y_px":65}]
-DATASET="/Users/vankietkhai/saigon_sniper/SaigonSniper_Datasets"
+DATASET=os.environ.get("SAIGON_SNIPER_TEST_DATASET_ROOT")
+@unittest.skipUnless(DATASET, "Set SAIGON_SNIPER_TEST_DATASET_ROOT to run annotation persistence tests.")
 class AnnotationPersistenceTests(unittest.TestCase):
  def setUp(self):
   self.temp=tempfile.TemporaryDirectory(); self.path=Path(self.temp.name)/"annotations.csv"

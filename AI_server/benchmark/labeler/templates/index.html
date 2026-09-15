@@ -12,6 +12,7 @@
         <p class="eyebrow">R1.3D V1</p>
         <h1>Công cụ gán nhãn Ground Truth Saigon Sniper</h1>
         <p class="stage">Mở ảnh JPG đã xác minh và chọn các điểm hiệu chuẩn tạm thời.</p>
+        <p class="browser-zoom-hint">Để chấm chính xác: Browser/Page Zoom = 100%. Dùng mức phóng của Labeler để phóng to ảnh.</p>
       </header>
 
       <section class="workspace" aria-label="Khu vực gán nhãn">
@@ -34,6 +35,7 @@
             <div><dt>Chi tiết kết quả</dt><dd id="derivation-details">—</dd></div>
             <div><dt>Trạng thái xác minh</dt><dd id="identity-status">Chưa kiểm tra</dd></div>
             <div><dt>Mức phóng</dt><dd id="zoom-status">—</dd></div>
+            <div><dt>Chế độ pixel</dt><dd id="pixel-mode-status">—</dd></div>
             <div><dt>Tọa độ con trỏ X/Y</dt><dd id="cursor-status">Ngoài vùng ảnh</dd></div>
           </dl>
           <label for="source-id-input">Mã ảnh cần mở</label>
@@ -47,6 +49,7 @@
             <button id="zoom-in" type="button" disabled>Phóng to</button>
             <button id="zoom-out" type="button" disabled>Thu nhỏ</button>
             <button id="pan-mode" type="button" aria-pressed="false" disabled>Di chuyển</button>
+            <button id="loupe-toggle" type="button" aria-pressed="false" disabled>Loupe chính xác</button>
             <button id="calibration-mode" type="button" aria-pressed="false" disabled>Hiệu chuẩn</button>
             <button id="undo-point" type="button" disabled>Hoàn tác</button>
             <button id="clear-points" type="button" disabled>Xóa điểm hiệu chuẩn</button>
@@ -58,6 +61,7 @@
             <button id="derive-score" type="button" disabled>Tính điểm tạm tính</button>
           </div>
           <p class="control-help">Chọn từ 5 đến 8 điểm trên mép ngoài vùng đen / vòng 4 của bia. Sau khi xác nhận hiệu chuẩn, phóng lớn ảnh và chọn chính xác tâm lỗ đạn. Khi chọn lại sẽ cần xác nhận. Điểm rìa lỗ đạn được xử lý ở giai đoạn sau.</p>
+          <p class="control-help">W/A/S/D hoặc phím mũi tên: di chuyển ảnh. Giữ Shift để đi nhanh, Alt để tinh chỉnh. Giữ Space và kéo chuột trái để di chuyển tạm thời mà không đổi chế độ chấm.</p>
           <p class="provisional-notice">TẠM TÍNH — CHƯA LƯU DỮ LIỆU GROUND TRUTH</p>
           <label for="labeler-id">Mã người chấm</label>
           <input id="labeler-id" type="text" maxlength="128" placeholder="LABELER_01">

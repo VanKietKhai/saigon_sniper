@@ -22,6 +22,7 @@ const holeCenterStatus = document.querySelector("#hole-center-status");
 const derivationStatus = document.querySelector("#derivation-status");
 const derivationDetails = document.querySelector("#derivation-details");
 const zoomStatus = document.querySelector("#zoom-status");
+const pixelModeStatus = document.querySelector("#pixel-mode-status");
 const cursorStatus = document.querySelector("#cursor-status");
 const labelerId = document.querySelector("#labeler-id");
 const annotationPass = document.querySelector("#annotation-pass");
@@ -35,6 +36,7 @@ const controls = {
   zoomIn: document.querySelector("#zoom-in"),
   zoomOut: document.querySelector("#zoom-out"),
   pan: document.querySelector("#pan-mode"),
+  loupe: document.querySelector("#loupe-toggle"),
   calibration: document.querySelector("#calibration-mode"),
   undo: document.querySelector("#undo-point"),
   clear: document.querySelector("#clear-points"),
@@ -50,6 +52,11 @@ const controls = {
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 8;
 const FIT_MARGIN_CSS_PX = 24;
+const PAN_DISTANCE_CSS_PX = 60;
+const PAN_FINE_DISTANCE_CSS_PX = 15;
+const PAN_FAST_DISTANCE_CSS_PX = 240;
+const LOUPE_SIZE_CSS_PX = 144;
+const LOUPE_SOURCE_PIXELS = 12;
 const statusText = {
   verified: "Đã xác minh",
   unsupported_format: "Định dạng ảnh chưa được hỗ trợ",
@@ -86,10 +93,13 @@ const state = {
   metadata: null,
   verifiedAndDecoded: false,
   view: { scale: 1, panX: 0, panY: 0 },
+  fitActive: false,
   calibrationPoints: [],
   mode: "none",
   pointerImage: null,
   panStart: null,
+  spacePanActive: false,
+  loupeEnabled: false,
   ellipseFit: null,
   fitState: "not_fitted",
   fitError: null,
@@ -139,6 +149,8 @@ function resetImage(message) {
   state.verifiedAndDecoded = false;
   state.pointerImage = null;
   state.mode = "none";
+  state.fitActive = false;
+  state.panStart = null;
   state.savedAnnotation = null;
   saveStatus.textContent = "Chưa lưu lượt chấm";
   invalidateFit();
@@ -148,6 +160,10 @@ function resetImage(message) {
   cursorStatus.textContent = "Ngoài vùng ảnh";
   updateControls();
   render();
+}
+
+function pixelModeIsActive() {
+  return state.view.scale >= 1;
 }
 
 function canvasCssSize() {
@@ -170,7 +186,10 @@ function render() {
   if (!state.image) return;
 
   const { scale, panX, panY } = state.view;
-  context.imageSmoothingEnabled = true;
+  context.imageSmoothingEnabled = !pixelModeIsActive();
+  if ("imageSmoothingQuality" in context) {
+    context.imageSmoothingQuality = pixelModeIsActive() ? "low" : "high";
+  }
   context.drawImage(state.image, panX, panY,
     state.image.naturalWidth * scale, state.image.naturalHeight * scale);
   for (const [index, point] of state.calibrationPoints.entries()) {
@@ -245,6 +264,45 @@ function render() {
     context.stroke();
     context.restore();
   }
+  drawPrecisionLoupe(size);
+}
+
+function drawPrecisionLoupe(viewportSize) {
+  if (!state.loupeEnabled || !pixelModeIsActive() || !state.pointerImage
+    || (state.mode !== "calibration" && state.mode !== "hole_center")) return;
+
+  const sourceWidth = Math.min(LOUPE_SOURCE_PIXELS, state.image.naturalWidth);
+  const sourceHeight = Math.min(LOUPE_SOURCE_PIXELS, state.image.naturalHeight);
+  const pointerX = Math.round(state.pointerImage.x);
+  const pointerY = Math.round(state.pointerImage.y);
+  const sourceX = Math.max(0, Math.min(state.image.naturalWidth - sourceWidth,
+    pointerX - Math.floor(sourceWidth / 2)));
+  const sourceY = Math.max(0, Math.min(state.image.naturalHeight - sourceHeight,
+    pointerY - Math.floor(sourceHeight / 2)));
+  const pointerDisplay = transforms.imageToDisplay(state.pointerImage, state.view);
+  const left = Math.max(8, Math.min(viewportSize.width - LOUPE_SIZE_CSS_PX - 8,
+    pointerDisplay.x + 18));
+  const top = Math.max(8, Math.min(viewportSize.height - LOUPE_SIZE_CSS_PX - 8,
+    pointerDisplay.y + 18));
+  const crossX = left + ((state.pointerImage.x - sourceX) / sourceWidth) * LOUPE_SIZE_CSS_PX;
+  const crossY = top + ((state.pointerImage.y - sourceY) / sourceHeight) * LOUPE_SIZE_CSS_PX;
+
+  context.save();
+  context.imageSmoothingEnabled = false;
+  context.drawImage(state.image, sourceX, sourceY, sourceWidth, sourceHeight,
+    left, top, LOUPE_SIZE_CSS_PX, LOUPE_SIZE_CSS_PX);
+  context.strokeStyle = "#f4f6f4";
+  context.lineWidth = 2;
+  context.strokeRect(left, top, LOUPE_SIZE_CSS_PX, LOUPE_SIZE_CSS_PX);
+  context.strokeStyle = "#ff5a7a";
+  context.lineWidth = 1;
+  context.beginPath();
+  context.moveTo(crossX - 12, crossY);
+  context.lineTo(crossX + 12, crossY);
+  context.moveTo(crossX, crossY - 12);
+  context.lineTo(crossX, crossY + 12);
+  context.stroke();
+  context.restore();
 }
 
 function updateControls() {
@@ -260,9 +318,11 @@ function updateControls() {
   controls.clearHoleCenter.disabled = !holeCenterReady || state.holeCenter === null;
   controls.derive.disabled = !holeCenterReady || state.holeCenter === null || !state.sourceId;
   controls.save.disabled = !state.derivedResult || !labelerId.value.trim() || state.savedAnnotation !== null;
+  controls.loupe.disabled = !ready || !pixelModeIsActive();
   controls.pan.setAttribute("aria-pressed", String(state.mode === "pan"));
   controls.calibration.setAttribute("aria-pressed", String(state.mode === "calibration"));
   controls.holeCenter.setAttribute("aria-pressed", String(state.mode === "hole_center"));
+  controls.loupe.setAttribute("aria-pressed", String(state.loupeEnabled && pixelModeIsActive()));
   calibrationStatus.textContent = ready
     ? `${state.calibrationPoints.length} / 8 điểm${state.calibrationPoints.length >= 5 ? " (có thể khớp elip)" : " (cần ít nhất 5 điểm)"}`
     : "Chưa kích hoạt: cần ảnh JPG đã xác minh";
@@ -282,7 +342,10 @@ function updateControls() {
     ? `Bộ quy tắc ${state.derivedResult.rule_set_id} · Tâm bia ${state.derivedResult.target_center_x_px.toFixed(2)}, ${state.derivedResult.target_center_y_px.toFixed(2)} px · Tâm lỗ đạn ${state.derivedResult.hole_center_x_px.toFixed(2)}, ${state.derivedResult.hole_center_y_px.toFixed(2)} px · Tỷ lệ trục lớn ${state.derivedResult.mm_per_px_major.toFixed(6)} mm/px · Tỷ lệ trục nhỏ ${state.derivedResult.mm_per_px_minor.toFixed(6)} mm/px · Khoảng cách tâm bia – tâm lỗ đạn ${state.derivedResult.center_distance_mm.toFixed(4)} mm · ${state.derivedResult.is_miss ? "0,0 / Ngoài vùng tính điểm" : `Điểm Ground Truth tạm tính ${state.derivedResult.provisional_score.toFixed(1)}`}`
     : "—";
   zoomStatus.textContent = ready ? `${Math.round(state.view.scale * 100)}%` : "—";
-  canvas.style.cursor = state.mode === "pan" ? "grab" : (state.mode === "calibration" || state.mode === "hole_center") ? "crosshair" : "default";
+  pixelModeStatus.textContent = !ready ? "—" : pixelModeIsActive()
+    ? "Bật tự động — hiển thị pixel gốc" : "Tắt — sẽ tự bật từ 100%";
+  canvas.style.cursor = state.panStart ? "grabbing" : (state.mode === "pan" || state.spacePanActive)
+    ? "grab" : (state.mode === "calibration" || state.mode === "hole_center") ? "crosshair" : "default";
 }
 
 async function saveAnnotation() {
@@ -304,6 +367,7 @@ function fitView() {
     width: state.image.naturalWidth,
     height: state.image.naturalHeight,
   }, FIT_MARGIN_CSS_PX);
+  state.fitActive = true;
   render();
   updateControls();
 }
@@ -316,6 +380,7 @@ function setOneToOne() {
     panX: (size.width - state.image.naturalWidth) / 2,
     panY: (size.height - state.image.naturalHeight) / 2,
   };
+  state.fitActive = false;
   render();
   updateControls();
 }
@@ -324,8 +389,40 @@ function zoomAt(displayPoint, multiplier) {
   if (!state.image) return;
   const nextScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, state.view.scale * multiplier));
   state.view = transforms.zoomAroundDisplayPoint(state.view, displayPoint, nextScale);
+  state.fitActive = false;
   render();
   updateControls();
+}
+
+function panViewBy(delta) {
+  if (!state.image) return;
+  state.view = transforms.panView(state.view, delta);
+  state.fitActive = false;
+  render();
+  updateControls();
+}
+
+function focusedElementAcceptsText() {
+  const active = document.activeElement;
+  return active instanceof HTMLElement && (
+    active.matches("input, textarea, select") || active.isContentEditable
+  );
+}
+
+function keyboardPanDelta(event) {
+  const distance = event.altKey ? PAN_FINE_DISTANCE_CSS_PX
+    : event.shiftKey ? PAN_FAST_DISTANCE_CSS_PX : PAN_DISTANCE_CSS_PX;
+  switch (event.key.toLowerCase()) {
+    case "w":
+    case "arrowup": return { x: 0, y: distance };
+    case "s":
+    case "arrowdown": return { x: 0, y: -distance };
+    case "a":
+    case "arrowleft": return { x: distance, y: 0 };
+    case "d":
+    case "arrowright": return { x: -distance, y: 0 };
+    default: return null;
+  }
 }
 
 function displayPointFromEvent(event) {
@@ -476,6 +573,11 @@ controls.pan.addEventListener("click", () => {
   state.mode = state.mode === "pan" ? "none" : "pan";
   updateControls();
 });
+controls.loupe.addEventListener("click", () => {
+  state.loupeEnabled = !state.loupeEnabled;
+  updateControls();
+  render();
+});
 controls.calibration.addEventListener("click", () => {
   state.mode = state.mode === "calibration" ? "none" : "calibration";
   updateControls();
@@ -511,6 +613,24 @@ controls.clearHoleCenter.addEventListener("click", () => {
 controls.derive.addEventListener("click", deriveScore);
 controls.save.addEventListener("click", () => { saveAnnotation().catch(() => { saveStatus.textContent = "Không thể lưu lượt chấm."; }); });
 labelerId.addEventListener("input", updateControls);
+window.addEventListener("keydown", (event) => {
+  if (!state.verifiedAndDecoded || focusedElementAcceptsText()) return;
+  if (event.code === "Space") {
+    state.spacePanActive = true;
+    event.preventDefault();
+    updateControls();
+    return;
+  }
+  const delta = keyboardPanDelta(event);
+  if (!delta) return;
+  event.preventDefault();
+  panViewBy(delta);
+});
+window.addEventListener("keyup", (event) => {
+  if (event.code !== "Space") return;
+  state.spacePanActive = false;
+  updateControls();
+});
 canvas.addEventListener("wheel", (event) => {
   if (!state.verifiedAndDecoded) return;
   event.preventDefault();
@@ -520,8 +640,15 @@ canvas.addEventListener("pointermove", (event) => {
   if (!state.verifiedAndDecoded) return;
   if (state.panStart) {
     const point = displayPointFromEvent(event);
-    state.view.panX = state.panStart.panX + point.x - state.panStart.pointer.x;
-    state.view.panY = state.panStart.panY + point.y - state.panStart.pointer.y;
+    state.view = transforms.panView({
+      scale: state.view.scale,
+      panX: state.panStart.panX,
+      panY: state.panStart.panY,
+    }, {
+      x: point.x - state.panStart.pointer.x,
+      y: point.y - state.panStart.pointer.y,
+    });
+    state.fitActive = false;
   }
   state.pointerImage = imagePointFromEvent(event);
   cursorStatus.textContent = state.pointerImage
@@ -536,7 +663,8 @@ canvas.addEventListener("pointerleave", () => {
 });
 canvas.addEventListener("pointerdown", (event) => {
   if (!state.verifiedAndDecoded || event.button !== 0) return;
-  if (state.mode === "pan") {
+  if (state.mode === "pan" || state.spacePanActive) {
+    event.preventDefault();
     state.panStart = { pointer: displayPointFromEvent(event), panX: state.view.panX, panY: state.view.panY };
     canvas.setPointerCapture(event.pointerId);
     canvas.style.cursor = "grabbing";
@@ -572,7 +700,16 @@ canvas.addEventListener("pointerup", (event) => {
   if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
   updateControls();
 });
-new ResizeObserver(() => render()).observe(canvasStage);
+canvas.addEventListener("pointercancel", (event) => {
+  if (!state.panStart) return;
+  state.panStart = null;
+  if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+  updateControls();
+});
+new ResizeObserver(() => {
+  if (state.fitActive && state.image) fitView();
+  else render();
+}).observe(canvasStage);
 render();
 loadHealth().catch(() => {
   datasetConfigured.textContent = "Không khả dụng";
