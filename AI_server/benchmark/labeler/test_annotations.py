@@ -32,6 +32,10 @@ class AnnotationPersistenceTests(unittest.TestCase):
   request={"source_id":"RIFLE_SRC_0001","calibration_points":POINTS,"hole_boundary_points":HOLE_POINTS,"hole_center":{"x_px":1,"y_px":1}}
   response=self.client.post("/api/derive",json=request); self.assertEqual(response.status_code,200)
   result=response.json()["result"]; self.assertAlmostEqual(result["hole_center_x_px"],100,places=3); self.assertAlmostEqual(result["hole_center_y_px"],100,places=3)
+ def test_target_fit_returns_transient_stability_diagnostics(self):
+  response=self.client.post("/api/calibration/fit",json={"points":POINTS})
+  self.assertEqual(response.status_code,200); stability=response.json()["stability"]
+  self.assertIn(stability["quality"],{"good","usable","unstable"}); self.assertEqual(len(stability["midpoints"]),4)
  def test_historical_30_5_storage_is_not_silently_mixed(self):
   with self.path.open("w",newline="",encoding="utf-8") as file:
    writer=csv.DictWriter(file,fieldnames=FIELDNAMES); writer.writeheader(); writer.writerow({"calibration_method":"human_selected_points_then_ellipse_fit"})

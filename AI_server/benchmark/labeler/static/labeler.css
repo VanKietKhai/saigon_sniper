@@ -110,6 +110,21 @@ button:disabled { opacity: 0.55; }
 
 .provisional-notice { color: #f0a928; font-weight: 700; font-size: 0.9rem; }
 
+.provisional-score-card {
+  border: 2px solid #f0a928;
+  border-radius: 10px;
+  background: #102b20;
+  color: #f4f6f4;
+  margin: 14px 0;
+  padding: 14px;
+  text-align: center;
+}
+.provisional-score-card p { color: #f0a928; font-weight: 700; margin: 0; }
+.provisional-score-card strong { display: block; font-size: 3rem; line-height: 1.15; margin: 6px 0; }
+.provisional-score-card span { color: #c7d1ca; font-size: .9rem; }
+.provisional-score-card.is-miss { border-color: #ff5a7a; background: #3b1722; }
+.provisional-score-card.is-stale { border-color: #aab8ad; background: #26352a; }
+
 .source-loader {
   display: grid;
   grid-template-columns: 1fr auto;

@@ -30,6 +30,7 @@
             <div><dt>Chuẩn hiệu chuẩn</dt><dd id="calibration-reference">Đang tải quy tắc cố định…</dd></div>
             <div><dt>Trạng thái khớp</dt><dd id="fit-status">Chưa khớp</dd></div>
             <div><dt>Chi tiết khớp</dt><dd id="fit-details">—</dd></div>
+            <div><dt>Độ ổn định hiệu chuẩn</dt><dd id="calibration-quality">Chưa khớp</dd></div>
             <div><dt>Elip lỗ đạn</dt><dd id="hole-center-status">Vui lòng xác nhận hiệu chuẩn trước khi đánh dấu mép lỗ đạn.</dd></div>
             <div><dt>Kết quả tạm tính</dt><dd id="derivation-status">Chưa tính</dd></div>
             <div><dt>Chi tiết kết quả</dt><dd id="derivation-details">—</dd></div>
@@ -66,6 +67,11 @@
           <p class="control-help">Chọn đúng 8 điểm phân bố đều trên đường biên ngoài của vòng 1. Không dồn điểm vào một phía; dùng zoom lớn, chế độ pixel và loupe khi cần. Chọn đúng đường biên in của vòng 1 — không chọn mép ngoài tờ bia hoặc biên vùng đen 30,5 mm. Sau khi xác nhận hiệu chuẩn, đánh dấu đúng 8 điểm trên mép lỗ đạn, khớp elip rồi xác nhận tâm.</p>
           <p class="control-help">W/A/S/D hoặc phím mũi tên: di chuyển ảnh. Giữ Shift để đi nhanh, Alt để tinh chỉnh. Giữ Space và kéo chuột trái để di chuyển tạm thời mà không đổi chế độ chấm.</p>
           <p class="provisional-notice">TẠM TÍNH — CHƯA LƯU DỮ LIỆU GROUND TRUTH</p>
+          <section id="provisional-score-card" class="provisional-score-card" aria-live="polite">
+            <p>ĐIỂM GROUND TRUTH TẠM TÍNH</p>
+            <strong id="provisional-score-value">—</strong>
+            <span id="provisional-score-summary">Cần tính điểm tạm tính trước khi lưu.</span>
+          </section>
           <label for="labeler-id">Mã người chấm</label>
           <input id="labeler-id" type="text" maxlength="128" placeholder="LABELER_01">
           <label for="annotation-pass">Lượt chấm</label>

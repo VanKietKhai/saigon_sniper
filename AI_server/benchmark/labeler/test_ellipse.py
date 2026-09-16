@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import unittest
 
-from .ellipse import EllipseFitError, fit_human_calibration_ellipse, fit_human_hole_ellipse
+from .ellipse import EllipseFitError, calibration_stability, fit_human_calibration_ellipse, fit_human_hole_ellipse
 
 
 def ellipse_points(center_x, center_y, major, minor, rotation_deg, count, perturbation=0):
@@ -25,6 +25,17 @@ def ellipse_points(center_x, center_y, major, minor, rotation_deg, count, pertur
 
 
 class EllipseFitTests(unittest.TestCase):
+    def test_calibration_stability_reports_balanced_and_unstable_clicks(self):
+        balanced = ellipse_points(200, 150, 80, 40, 25, 8)
+        balanced_fit = fit_human_calibration_ellipse(balanced)
+        diagnostics = calibration_stability(balanced, balanced_fit)
+        self.assertEqual(diagnostics.quality, "good")
+        self.assertLess(diagnostics.normalized_deviation, 0.03)
+        uneven = [point.copy() for point in balanced]
+        uneven[0]["x_px"] += 90
+        uneven[1]["x_px"] += 90
+        uneven_fit = fit_human_calibration_ellipse(uneven)
+        self.assertEqual(calibration_stability(uneven, uneven_fit).quality, "unstable")
     def test_hole_ellipse_requires_exactly_eight_and_is_geometry_only(self):
         points = ellipse_points(412, 275, 18, 9, 47, 8)
         fitted = fit_human_hole_ellipse(points)

@@ -18,6 +18,7 @@ const calibrationStatus = document.querySelector("#calibration-status");
 const calibrationReference = document.querySelector("#calibration-reference");
 const fitStatus = document.querySelector("#fit-status");
 const fitDetails = document.querySelector("#fit-details");
+const calibrationQuality = document.querySelector("#calibration-quality");
 const holeCenterStatus = document.querySelector("#hole-center-status");
 const derivationStatus = document.querySelector("#derivation-status");
 const derivationDetails = document.querySelector("#derivation-details");
@@ -30,6 +31,9 @@ const perspectiveStatus = document.querySelector("#perspective-status");
 const labelQuality = document.querySelector("#label-quality");
 const annotationNotes = document.querySelector("#annotation-notes");
 const saveStatus = document.querySelector("#save-status");
+const provisionalScoreCard = document.querySelector("#provisional-score-card");
+const provisionalScoreValue = document.querySelector("#provisional-score-value");
+const provisionalScoreSummary = document.querySelector("#provisional-score-summary");
 const controls = {
   fit: document.querySelector("#fit-view"),
   oneToOne: document.querySelector("#one-to-one"),
@@ -107,6 +111,7 @@ const state = {
   ellipseFit: null,
   fitState: "not_fitted",
   fitError: null,
+  calibrationStability: null,
   calibrationReference: null,
   holeBoundaryPoints: [],
   holeEllipseFit: null,
@@ -136,12 +141,25 @@ function invalidateFit(nextState = "not_fitted") {
   state.ellipseFit = null;
   state.fitState = nextState;
   state.fitError = null;
+  state.calibrationStability = null;
   clearHoleGeometry();
 }
 
 function invalidateDerived() {
   state.derivedResult = null;
   state.derivationError = null;
+}
+
+function updateProvisionalScoreCard() {
+  provisionalScoreCard.classList.toggle("is-miss", Boolean(state.derivedResult?.is_miss));
+  provisionalScoreCard.classList.toggle("is-stale", !state.derivedResult);
+  if (!state.derivedResult) {
+    provisionalScoreValue.textContent = "—";
+    provisionalScoreSummary.textContent = "Kết quả cũ đã hết hiệu lực — hãy Tính điểm tạm tính lại trước khi lưu.";
+    return;
+  }
+  provisionalScoreValue.textContent = state.derivedResult.is_miss ? "MISS / 0.0" : state.derivedResult.provisional_score.toFixed(1);
+  provisionalScoreSummary.textContent = `${state.derivedResult.center_distance_mm.toFixed(4)} mm · ${state.derivedResult.rule_set_id} · TẠM TÍNH — CHƯA LƯU`;
 }
 
 function clearHoleGeometry() {
@@ -343,7 +361,7 @@ function updateControls() {
   controls.fitHole.disabled = !holeCenterReady || state.holeBoundaryPoints.length !== 8;
   controls.acceptHole.disabled = !holeCenterReady || state.holeFitState !== "fitted";
   controls.derive.disabled = !holeCenterReady || state.holeFitState !== "accepted" || !state.sourceId;
-  controls.save.disabled = !state.derivedResult || !labelerId.value.trim() || state.savedAnnotation !== null;
+  controls.save.disabled = !state.derivedResult || state.fitState !== "accepted" || state.holeFitState !== "accepted" || !labelerId.value.trim() || state.savedAnnotation !== null;
   controls.loupe.disabled = !ready || !pixelModeIsActive();
   controls.pan.setAttribute("aria-pressed", String(state.mode === "pan"));
   controls.calibration.setAttribute("aria-pressed", String(state.mode === "calibration"));
@@ -356,6 +374,15 @@ function updateControls() {
   fitDetails.textContent = state.ellipseFit
     ? `Tâm bia ${state.ellipseFit.center_x_px.toFixed(2)}, ${state.ellipseFit.center_y_px.toFixed(2)} px · Bán kính trục lớn ${state.ellipseFit.radius_major_px.toFixed(2)} px · Bán kính trục nhỏ ${state.ellipseFit.radius_minor_px.toFixed(2)} px · Góc xoay ${state.ellipseFit.rotation_deg.toFixed(2)}° · Sai số RMS ${state.ellipseFit.calibration_fit_residual_px.toFixed(3)} px · Sai số lớn nhất ${state.ellipseFit.max_radial_residual_px.toFixed(3)} px · Tỷ lệ trục ${state.ellipseFit.axis_ratio.toFixed(4)} · ${state.ellipseFit.point_count} điểm`
     : state.fitError ? "Không thể khớp elip từ các điểm đã chọn" : "—";
+  if (!state.calibrationStability) calibrationQuality.textContent = "Chưa khớp";
+  else {
+    const qualityMessage = state.calibrationStability.quality === "unstable"
+      ? "Hiệu chuẩn chưa ổn định — nên chọn lại 8 điểm."
+      : state.calibrationStability.quality === "good"
+        ? "Tốt — 8 điểm cân bằng quanh vòng 1."
+        : "Có thể dùng — nên kiểm tra lại độ phân bố điểm.";
+    calibrationQuality.textContent = `${qualityMessage} RMS midpoint ${state.calibrationStability.midpoint_cluster_rms_px.toFixed(2)} px · lệch tâm ${state.calibrationStability.midpoint_center_offset_px.toFixed(2)} px`;
+  }
   holeCenterStatus.textContent = !holeCenterReady
     ? "Vui lòng xác nhận hiệu chuẩn trước khi đánh dấu mép lỗ đạn."
     : state.holeEllipseFit
@@ -370,6 +397,7 @@ function updateControls() {
   zoomStatus.textContent = ready ? `${Math.round(state.view.scale * 100)}%` : "—";
   pixelModeStatus.textContent = !ready ? "—" : pixelModeIsActive()
     ? "Bật tự động — hiển thị pixel gốc" : "Tắt — sẽ tự bật từ 100%";
+  updateProvisionalScoreCard();
   canvas.style.cursor = state.panStart ? "grabbing" : (state.mode === "pan" || state.spacePanActive)
     ? "grab" : (state.mode === "calibration" || state.mode === "hole_boundary") ? "crosshair" : "default";
 }
@@ -533,6 +561,7 @@ async function fitEllipse() {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.detail?.status || "ellipse_fit_failed");
     state.ellipseFit = payload.ellipse;
+    state.calibrationStability = payload.stability;
     state.fitState = "fitted";
   } catch (error) {
     invalidateFit("needs_redo");

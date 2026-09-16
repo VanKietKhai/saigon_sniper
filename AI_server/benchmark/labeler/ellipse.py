@@ -67,6 +67,20 @@ class HoleEllipseFit:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class CalibrationStability:
+    """Transient balance diagnostic for the ordered eight ring-1 clicks."""
+
+    quality: str
+    midpoint_cluster_rms_px: float
+    midpoint_center_offset_px: float
+    normalized_deviation: float
+    midpoints: tuple[tuple[float, float], ...]
+
+    def public(self) -> dict[str, object]:
+        return {**asdict(self), "midpoints": [{"x_px": x, "y_px": y} for x, y in self.midpoints]}
+
+
 def fit_human_calibration_ellipse(
     points: Sequence[Mapping[str, object]],
 ) -> EllipseFit:
@@ -79,6 +93,20 @@ def fit_human_hole_ellipse(points: Sequence[Mapping[str, object]]) -> HoleEllips
     """Fit exactly eight human-selected hole-boundary points; inspect no pixels."""
     normalized_points = _validate_points(points, 8, 8, "Hole boundary")
     return _fit_ellipse(normalized_points, HoleEllipseFit)
+
+
+def calibration_stability(points: Sequence[Mapping[str, object]], ellipse: EllipseFit) -> CalibrationStability:
+    """Measure opposite-pair midpoint balance without changing the ellipse fit."""
+    normalized = _validate_points(points, 8, 8, "Target calibration")
+    midpoints = tuple(((normalized[index][0] + normalized[index + 4][0]) / 2,
+                       (normalized[index][1] + normalized[index + 4][1]) / 2) for index in range(4))
+    mean_x = sum(point[0] for point in midpoints) / 4
+    mean_y = sum(point[1] for point in midpoints) / 4
+    cluster_rms = math.sqrt(sum((x - mean_x) ** 2 + (y - mean_y) ** 2 for x, y in midpoints) / 4)
+    center_offset = math.hypot(mean_x - ellipse.center_x_px, mean_y - ellipse.center_y_px)
+    normalized_deviation = max(cluster_rms, center_offset) / math.sqrt(ellipse.radius_major_px * ellipse.radius_minor_px)
+    quality = "good" if normalized_deviation <= 0.03 else "usable" if normalized_deviation <= 0.08 else "unstable"
+    return CalibrationStability(quality, cluster_rms, center_offset, normalized_deviation, midpoints)
 
 
 def _fit_ellipse(normalized_points: list[tuple[float, float]], result_type):

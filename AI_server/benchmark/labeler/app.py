@@ -17,7 +17,7 @@ from .manifest import (
     SourceNotFoundError,
     dataset_root_from_environment,
 )
-from .ellipse import EllipseFitError, fit_human_calibration_ellipse, fit_human_hole_ellipse
+from .ellipse import EllipseFitError, calibration_stability, fit_human_calibration_ellipse, fit_human_hole_ellipse
 from .derivation import DerivationError, derive_provisional_result, load_frozen_reference
 from .annotations import AnnotationError, DuplicateAnnotationError, append_annotation
 
@@ -100,7 +100,8 @@ async def fit_calibration(request: CalibrationFitRequest) -> dict[str, object]:
             status_code=422,
             detail={"status": "invalid_calibration_points", "message": str(error)},
         ) from error
-    return {"status": "fitted", "ellipse": fitted.public()}
+    points = [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.points]
+    return {"status": "fitted", "ellipse": fitted.public(), "stability": calibration_stability(points, fitted).public()}
 
 
 @app.post("/api/hole-ellipse/fit")
