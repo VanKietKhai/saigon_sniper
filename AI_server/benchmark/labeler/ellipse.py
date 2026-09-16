@@ -49,11 +49,39 @@ class EllipseFit:
         return payload
 
 
+@dataclass(frozen=True)
+class HoleEllipseFit:
+    """Ellipse fitted solely from the eight human-selected hole-edge points."""
+
+    center_x_px: float
+    center_y_px: float
+    radius_major_px: float
+    radius_minor_px: float
+    rotation_deg: float
+    hole_ellipse_rms_residual_px: float
+    hole_ellipse_max_residual_px: float
+    axis_ratio: float
+    point_count: int
+
+    def public(self) -> dict[str, float | int]:
+        return asdict(self)
+
+
 def fit_human_calibration_ellipse(
     points: Sequence[Mapping[str, object]],
 ) -> EllipseFit:
     """Fit only supplied human points; no source image pixels are inspected."""
-    normalized_points = _validate_points(points)
+    normalized_points = _validate_points(points, MIN_CALIBRATION_POINTS, MAX_CALIBRATION_POINTS, "Calibration")
+    return _fit_ellipse(normalized_points, EllipseFit)
+
+
+def fit_human_hole_ellipse(points: Sequence[Mapping[str, object]]) -> HoleEllipseFit:
+    """Fit exactly eight human-selected hole-boundary points; inspect no pixels."""
+    normalized_points = _validate_points(points, 8, 8, "Hole boundary")
+    return _fit_ellipse(normalized_points, HoleEllipseFit)
+
+
+def _fit_ellipse(normalized_points: list[tuple[float, float]], result_type):
     point_array = np.asarray(normalized_points, dtype=np.float32)
     try:
         (center_x, center_y), (axis_one, axis_two), raw_angle = cv2.fitEllipse(
@@ -95,23 +123,26 @@ def fit_human_calibration_ellipse(
     )
     if not residuals or not all(math.isfinite(residual) for residual in residuals):
         raise EllipseFitError("Ellipse fit residual is invalid.")
-    return EllipseFit(
+    shared = dict(
         center_x_px=center_x,
         center_y_px=center_y,
         radius_major_px=radius_major,
         radius_minor_px=radius_minor,
         rotation_deg=rotation,
-        calibration_fit_residual_px=math.sqrt(sum(value * value for value in residuals) / len(residuals)),
-        max_radial_residual_px=max(residuals),
         axis_ratio=radius_minor / radius_major,
         point_count=len(normalized_points),
     )
+    rms = math.sqrt(sum(value * value for value in residuals) / len(residuals))
+    maximum = max(residuals)
+    if result_type is EllipseFit:
+        return EllipseFit(**shared, calibration_fit_residual_px=rms, max_radial_residual_px=maximum)
+    return HoleEllipseFit(**shared, hole_ellipse_rms_residual_px=rms, hole_ellipse_max_residual_px=maximum)
 
 
-def _validate_points(points: Sequence[Mapping[str, object]]) -> list[tuple[float, float]]:
-    if not MIN_CALIBRATION_POINTS <= len(points) <= MAX_CALIBRATION_POINTS:
+def _validate_points(points: Sequence[Mapping[str, object]], minimum: int, maximum: int, label: str) -> list[tuple[float, float]]:
+    if not minimum <= len(points) <= maximum:
         raise EllipseFitError(
-            f"Calibration requires {MIN_CALIBRATION_POINTS}–{MAX_CALIBRATION_POINTS} points."
+            f"{label} requires {minimum}–{maximum} points."
         )
     normalized: list[tuple[float, float]] = []
     for index, point in enumerate(points, start=1):
@@ -126,10 +157,10 @@ def _validate_points(points: Sequence[Mapping[str, object]]) -> list[tuple[float
             raise EllipseFitError(f"Point {index} must be nonnegative.")
         normalized.append((x_value, y_value))
     if len(set(normalized)) != len(normalized):
-        raise EllipseFitError("Calibration points must not be duplicated.")
+        raise EllipseFitError(f"{label} points must not be duplicated.")
     centered = np.asarray(normalized, dtype=np.float64) - np.mean(normalized, axis=0)
     if np.linalg.matrix_rank(centered) < 2:
-        raise EllipseFitError("Calibration points are degenerate or collinear.")
+        raise EllipseFitError(f"{label} points are degenerate or collinear.")
     return normalized
 
 

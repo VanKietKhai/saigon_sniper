@@ -30,7 +30,7 @@
             <div><dt>Chuẩn hiệu chuẩn</dt><dd id="calibration-reference">Đang tải quy tắc cố định…</dd></div>
             <div><dt>Trạng thái khớp</dt><dd id="fit-status">Chưa khớp</dd></div>
             <div><dt>Chi tiết khớp</dt><dd id="fit-details">—</dd></div>
-            <div><dt>Tâm lỗ đạn</dt><dd id="hole-center-status">Vui lòng xác nhận hiệu chuẩn trước khi chọn tâm lỗ đạn.</dd></div>
+            <div><dt>Elip lỗ đạn</dt><dd id="hole-center-status">Vui lòng xác nhận hiệu chuẩn trước khi đánh dấu mép lỗ đạn.</dd></div>
             <div><dt>Kết quả tạm tính</dt><dd id="derivation-status">Chưa tính</dd></div>
             <div><dt>Chi tiết kết quả</dt><dd id="derivation-details">—</dd></div>
             <div><dt>Trạng thái xác minh</dt><dd id="identity-status">Chưa kiểm tra</dd></div>
@@ -56,11 +56,14 @@
             <button id="fit-ellipse" type="button" disabled>Khớp elip</button>
             <button id="accept-calibration" type="button" disabled>Xác nhận hiệu chuẩn</button>
             <button id="redo-calibration" type="button" disabled>Làm lại hiệu chuẩn</button>
-            <button id="hole-center-mode" type="button" aria-pressed="false" disabled>Chọn tâm lỗ đạn</button>
-            <button id="clear-hole-center" type="button" disabled>Xóa tâm lỗ đạn</button>
+            <button id="hole-boundary-mode" type="button" aria-pressed="false" disabled>Đánh dấu mép lỗ đạn</button>
+            <button id="undo-hole-point" type="button" disabled>Hoàn tác điểm lỗ</button>
+            <button id="clear-hole-points" type="button" disabled>Xóa điểm mép lỗ</button>
+            <button id="fit-hole-ellipse" type="button" disabled>Khớp elip lỗ đạn</button>
+            <button id="accept-hole-ellipse" type="button" disabled>Xác nhận tâm lỗ đạn</button>
             <button id="derive-score" type="button" disabled>Tính điểm tạm tính</button>
           </div>
-          <p class="control-help">Chọn từ 5 đến 8 điểm trên mép ngoài vùng đen / vòng 4 của bia. Sau khi xác nhận hiệu chuẩn, phóng lớn ảnh và chọn chính xác tâm lỗ đạn. Khi chọn lại sẽ cần xác nhận. Điểm rìa lỗ đạn được xử lý ở giai đoạn sau.</p>
+          <p class="control-help">Chọn từ 5 đến 8 điểm trên mép ngoài vùng đen / vòng 4 của bia. Sau khi xác nhận hiệu chuẩn, phóng lớn ảnh và đánh dấu đúng 8 điểm trên mép lỗ đạn, khớp elip rồi xác nhận tâm. Tâm lỗ không được chọn bằng một click.</p>
           <p class="control-help">W/A/S/D hoặc phím mũi tên: di chuyển ảnh. Giữ Shift để đi nhanh, Alt để tinh chỉnh. Giữ Space và kéo chuột trái để di chuyển tạm thời mà không đổi chế độ chấm.</p>
           <p class="provisional-notice">TẠM TÍNH — CHƯA LƯU DỮ LIỆU GROUND TRUTH</p>
           <label for="labeler-id">Mã người chấm</label>

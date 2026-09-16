@@ -164,3 +164,25 @@ uses 15 pixels. Holding `Space` while left-dragging temporarily pans without
 changing the selected calibration or hole-center mode. All of these controls
 change only the display transform; saved geometry remains in original-image
 pixels.
+
+## R1.3E.1b eight-point hole ellipse
+
+The current hole workflow replaces the historical single-click center with
+exactly eight human-selected hole-boundary points in original-image
+coordinates. It is enabled only after accepted target calibration. The browser
+numbers the points, permits undo/clear, rejects a ninth point, and requires an
+explicit fit followed by **Xác nhận tâm lỗ đạn** before derivation or saving.
+Zoom, pan, loupe, and pixel mode affect only display.
+
+The server validates all eight points as finite, nonnegative, distinct,
+non-collinear, and inside the verified source dimensions. OpenCV fits only
+those supplied points; it never uses image pixels. The fitted center is the
+only authoritative hole center for derivation and persistence. A submitted
+freehand `hole_center` is not accepted as authority. New records store the raw
+eight points, `hole_center_method=ellipse_8pt_v2`, and fitted ellipse geometry
+plus RMS/max residual diagnostics.
+
+Legacy single-click CSV storage is deliberately not appended with the new
+header. This prevents a restarted ellipse pilot from silently mixing schemas
+with aborted old-UI evidence; preserve that evidence and start a separately
+approved new-pilot storage file.

@@ -43,8 +43,11 @@ const controls = {
   fitEllipse: document.querySelector("#fit-ellipse"),
   accept: document.querySelector("#accept-calibration"),
   redo: document.querySelector("#redo-calibration"),
-  holeCenter: document.querySelector("#hole-center-mode"),
-  clearHoleCenter: document.querySelector("#clear-hole-center"),
+  holeBoundary: document.querySelector("#hole-boundary-mode"),
+  undoHole: document.querySelector("#undo-hole-point"),
+  clearHole: document.querySelector("#clear-hole-points"),
+  fitHole: document.querySelector("#fit-hole-ellipse"),
+  acceptHole: document.querySelector("#accept-hole-ellipse"),
   derive: document.querySelector("#derive-score"),
   save: document.querySelector("#save-annotation"),
 };
@@ -71,6 +74,7 @@ const statusText = {
   ellipse_fit_failed: "Không thể khớp elip từ các điểm đã chọn",
   invalid_calibration_points: "Các điểm hiệu chuẩn không hợp lệ",
   invalid_human_geometry: "Không thể tính điểm từ hình học đã chọn",
+  invalid_hole_boundary_points: "Tám điểm mép lỗ đạn không hợp lệ",
 };
 const fitStateText = {
   not_fitted: "Chưa khớp",
@@ -104,6 +108,9 @@ const state = {
   fitState: "not_fitted",
   fitError: null,
   calibrationReference: null,
+  holeBoundaryPoints: [],
+  holeEllipseFit: null,
+  holeFitState: "not_fitted",
   holeCenter: null,
   derivedResult: null,
   derivationError: null,
@@ -129,7 +136,7 @@ function invalidateFit(nextState = "not_fitted") {
   state.ellipseFit = null;
   state.fitState = nextState;
   state.fitError = null;
-  clearHoleCenter();
+  clearHoleGeometry();
 }
 
 function invalidateDerived() {
@@ -137,9 +144,12 @@ function invalidateDerived() {
   state.derivationError = null;
 }
 
-function clearHoleCenter() {
+function clearHoleGeometry() {
+  state.holeBoundaryPoints = [];
+  state.holeEllipseFit = null;
+  state.holeFitState = "not_fitted";
   state.holeCenter = null;
-  if (state.mode === "hole_center") state.mode = "none";
+  if (state.mode === "hole_boundary") state.mode = "none";
   invalidateDerived();
 }
 
@@ -231,6 +241,19 @@ function render() {
     context.stroke();
     context.restore();
   }
+  for (const [index, point] of state.holeBoundaryPoints.entries()) {
+    const display = transforms.imageToDisplay({ x: point.x_px, y: point.y_px }, state.view);
+    context.save(); context.fillStyle = "#ff7a45"; context.strokeStyle = "#23150f"; context.lineWidth = 2;
+    context.beginPath(); context.arc(display.x, display.y, 5, 0, Math.PI * 2); context.fill(); context.stroke();
+    context.fillStyle = "#f4f6f4"; context.font = "12px Arial"; context.fillText(String(index + 1), display.x + 7, display.y - 7); context.restore();
+  }
+  if (state.holeEllipseFit) {
+    const ellipse = state.holeEllipseFit;
+    const center = transforms.imageToDisplay({ x: ellipse.center_x_px, y: ellipse.center_y_px }, state.view);
+    context.save(); context.translate(center.x, center.y); context.rotate((ellipse.rotation_deg * Math.PI) / 180);
+    context.strokeStyle = "#74e86f"; context.lineWidth = 2; context.setLineDash([5, 3]); context.beginPath();
+    context.ellipse(0, 0, ellipse.radius_major_px * state.view.scale, ellipse.radius_minor_px * state.view.scale, 0, 0, Math.PI * 2); context.stroke(); context.setLineDash([]); context.restore();
+  }
   if (state.holeCenter) {
     const display = transforms.imageToDisplay(
       { x: state.holeCenter.x_px, y: state.holeCenter.y_px }, state.view,
@@ -269,7 +292,7 @@ function render() {
 
 function drawPrecisionLoupe(viewportSize) {
   if (!state.loupeEnabled || !pixelModeIsActive() || !state.pointerImage
-    || (state.mode !== "calibration" && state.mode !== "hole_center")) return;
+    || (state.mode !== "calibration" && state.mode !== "hole_boundary")) return;
 
   const sourceWidth = Math.min(LOUPE_SOURCE_PIXELS, state.image.naturalWidth);
   const sourceHeight = Math.min(LOUPE_SOURCE_PIXELS, state.image.naturalHeight);
@@ -314,14 +337,17 @@ function updateControls() {
   controls.accept.disabled = !ready || state.fitState !== "fitted";
   controls.redo.disabled = !ready || state.calibrationPoints.length === 0;
   const holeCenterReady = ready && state.fitState === "accepted" && state.ellipseFit !== null;
-  controls.holeCenter.disabled = !holeCenterReady;
-  controls.clearHoleCenter.disabled = !holeCenterReady || state.holeCenter === null;
-  controls.derive.disabled = !holeCenterReady || state.holeCenter === null || !state.sourceId;
+  controls.holeBoundary.disabled = !holeCenterReady;
+  controls.undoHole.disabled = !holeCenterReady || state.holeBoundaryPoints.length === 0;
+  controls.clearHole.disabled = !holeCenterReady || state.holeBoundaryPoints.length === 0;
+  controls.fitHole.disabled = !holeCenterReady || state.holeBoundaryPoints.length !== 8;
+  controls.acceptHole.disabled = !holeCenterReady || state.holeFitState !== "fitted";
+  controls.derive.disabled = !holeCenterReady || state.holeFitState !== "accepted" || !state.sourceId;
   controls.save.disabled = !state.derivedResult || !labelerId.value.trim() || state.savedAnnotation !== null;
   controls.loupe.disabled = !ready || !pixelModeIsActive();
   controls.pan.setAttribute("aria-pressed", String(state.mode === "pan"));
   controls.calibration.setAttribute("aria-pressed", String(state.mode === "calibration"));
-  controls.holeCenter.setAttribute("aria-pressed", String(state.mode === "hole_center"));
+  controls.holeBoundary.setAttribute("aria-pressed", String(state.mode === "hole_boundary"));
   controls.loupe.setAttribute("aria-pressed", String(state.loupeEnabled && pixelModeIsActive()));
   calibrationStatus.textContent = ready
     ? `${state.calibrationPoints.length} / 8 điểm${state.calibrationPoints.length >= 5 ? " (có thể khớp elip)" : " (cần ít nhất 5 điểm)"}`
@@ -331,10 +357,10 @@ function updateControls() {
     ? `Tâm bia ${state.ellipseFit.center_x_px.toFixed(2)}, ${state.ellipseFit.center_y_px.toFixed(2)} px · Bán kính trục lớn ${state.ellipseFit.radius_major_px.toFixed(2)} px · Bán kính trục nhỏ ${state.ellipseFit.radius_minor_px.toFixed(2)} px · Góc xoay ${state.ellipseFit.rotation_deg.toFixed(2)}° · Sai số RMS ${state.ellipseFit.calibration_fit_residual_px.toFixed(3)} px · Sai số lớn nhất ${state.ellipseFit.max_radial_residual_px.toFixed(3)} px · Tỷ lệ trục ${state.ellipseFit.axis_ratio.toFixed(4)} · ${state.ellipseFit.point_count} điểm`
     : state.fitError ? "Không thể khớp elip từ các điểm đã chọn" : "—";
   holeCenterStatus.textContent = !holeCenterReady
-    ? "Vui lòng xác nhận hiệu chuẩn trước khi chọn tâm lỗ đạn."
-    : state.holeCenter
-      ? `X ${state.holeCenter.x_px.toFixed(2)} px · Y ${state.holeCenter.y_px.toFixed(2)} px (đã chọn thủ công, tạm thời)`
-      : "Chưa chọn";
+    ? "Vui lòng xác nhận hiệu chuẩn trước khi đánh dấu mép lỗ đạn."
+    : state.holeEllipseFit
+      ? `Tâm ${state.holeEllipseFit.center_x_px.toFixed(2)}, ${state.holeEllipseFit.center_y_px.toFixed(2)} px · Trục lớn ${state.holeEllipseFit.radius_major_px.toFixed(2)} px · Trục nhỏ ${state.holeEllipseFit.radius_minor_px.toFixed(2)} px · Góc ${state.holeEllipseFit.rotation_deg.toFixed(2)}° · Tỷ lệ trục ${state.holeEllipseFit.axis_ratio.toFixed(4)} · RMS ${state.holeEllipseFit.hole_ellipse_rms_residual_px.toFixed(3)} px · lớn nhất ${state.holeEllipseFit.hole_ellipse_max_residual_px.toFixed(3)} px · ${state.holeFitState === "accepted" ? "đã xác nhận" : "chưa xác nhận"}`
+      : `${state.holeBoundaryPoints.length} / 8 điểm mép lỗ đạn`;
   derivationStatus.textContent = state.derivedResult
     ? "TẠM TÍNH — CHƯA LƯU DỮ LIỆU GROUND TRUTH"
     : state.derivationError ? "Không thể tính điểm tạm tính" : "Chưa tính";
@@ -345,7 +371,7 @@ function updateControls() {
   pixelModeStatus.textContent = !ready ? "—" : pixelModeIsActive()
     ? "Bật tự động — hiển thị pixel gốc" : "Tắt — sẽ tự bật từ 100%";
   canvas.style.cursor = state.panStart ? "grabbing" : (state.mode === "pan" || state.spacePanActive)
-    ? "grab" : (state.mode === "calibration" || state.mode === "hole_center") ? "crosshair" : "default";
+    ? "grab" : (state.mode === "calibration" || state.mode === "hole_boundary") ? "crosshair" : "default";
 }
 
 async function saveAnnotation() {
@@ -353,7 +379,7 @@ async function saveAnnotation() {
   const score = state.derivedResult.provisional_score.toFixed(1);
   if (!window.confirm(`Lưu lượt chấm ${annotationPass.value} cho ${state.sourceId}, người chấm ${labelerId.value.trim()}, điểm tạm tính ${score}?`)) return;
   saveStatus.textContent = "Đang lưu lượt chấm…";
-  const response = await fetch("/api/annotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source_id: state.sourceId, annotation_pass: annotationPass.value, labeler_id: labelerId.value.trim(), calibration_points: state.calibrationPoints, hole_center: state.holeCenter, perspective_status: perspectiveStatus.value, label_quality: labelQuality.value, notes: annotationNotes.value }) });
+  const response = await fetch("/api/annotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source_id: state.sourceId, annotation_pass: annotationPass.value, labeler_id: labelerId.value.trim(), calibration_points: state.calibrationPoints, hole_boundary_points: state.holeBoundaryPoints, perspective_status: perspectiveStatus.value, label_quality: labelQuality.value, notes: annotationNotes.value }) });
   const payload = await response.json();
   if (!response.ok) { saveStatus.textContent = payload.detail?.status === "duplicate_annotation_pass" ? "Lượt chấm này đã tồn tại." : "Không thể lưu lượt chấm."; return; }
   state.savedAnnotation = payload.annotation_id;
@@ -445,18 +471,19 @@ function clearTransientPoints() {
   render();
 }
 
-function setHoleCenter(imagePoint) {
+function addHoleBoundaryPoint(imagePoint) {
   if (!imagePoint || !Number.isFinite(imagePoint.x) || !Number.isFinite(imagePoint.y)
     || imagePoint.x < 0 || imagePoint.y < 0) return;
-  if (state.holeCenter && !window.confirm("Bạn có muốn chọn lại tâm lỗ đạn hiện tại không?")) return;
-  state.holeCenter = { x_px: imagePoint.x, y_px: imagePoint.y };
+  if (state.holeBoundaryPoints.length >= 8) { holeCenterStatus.textContent = "Đã đủ 8 điểm mép lỗ đạn; không thể thêm điểm thứ 9."; return; }
+  state.holeBoundaryPoints.push({ x_px: imagePoint.x, y_px: imagePoint.y });
+  state.holeEllipseFit = null; state.holeFitState = "not_fitted"; state.holeCenter = null;
   invalidateDerived();
   updateControls();
   render();
 }
 
 async function deriveScore() {
-  if (!state.sourceId || !state.holeCenter || !state.ellipseFit || state.fitState !== "accepted") return;
+  if (!state.sourceId || state.holeFitState !== "accepted" || !state.ellipseFit || state.fitState !== "accepted") return;
   invalidateDerived();
   derivationStatus.textContent = "Đang tính điểm tạm tính…";
   try {
@@ -466,17 +493,30 @@ async function deriveScore() {
       body: JSON.stringify({
         source_id: state.sourceId,
         calibration_points: state.calibrationPoints,
-        hole_center: state.holeCenter,
+        hole_boundary_points: state.holeBoundaryPoints,
       }),
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.detail?.status || "provisional_derivation_failed");
     if (payload.result.source_id !== state.sourceId) throw new Error("stale_source_result_rejected");
     state.derivedResult = payload.result;
+    state.holeEllipseFit = payload.hole_ellipse;
+    state.holeCenter = { x_px: payload.hole_ellipse.center_x_px, y_px: payload.hole_ellipse.center_y_px };
   } catch (error) {
     state.derivationError = displayStatus(error.message);
   }
   updateControls();
+}
+
+async function fitHoleEllipse() {
+  if (state.holeBoundaryPoints.length !== 8) return;
+  state.holeFitState = "fitting"; state.holeEllipseFit = null; state.holeCenter = null; invalidateDerived(); updateControls();
+  try {
+    const response = await fetch("/api/hole-ellipse/fit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ points: state.holeBoundaryPoints }) });
+    const payload = await response.json(); if (!response.ok) throw new Error(payload.detail?.status || "invalid_hole_boundary_points");
+    state.holeEllipseFit = payload.ellipse; state.holeFitState = "fitted";
+  } catch (error) { state.holeFitState = "needs_redo"; holeCenterStatus.textContent = displayStatus(error.message); }
+  updateControls(); render();
 }
 
 async function fitEllipse() {
@@ -518,7 +558,7 @@ async function loadSource() {
     return;
   }
 
-  if ((state.calibrationPoints.length > 0 || state.ellipseFit || state.holeCenter) && sourceId !== state.sourceId
+  if ((state.calibrationPoints.length > 0 || state.ellipseFit || state.holeBoundaryPoints.length > 0) && sourceId !== state.sourceId
     && !window.confirm("Bạn có muốn chuyển sang ảnh khác? Các thao tác chưa lưu trên ảnh hiện tại sẽ bị hủy.")) return;
   if (sourceId !== state.sourceId) clearTransientPoints();
   resetImage("Đang kiểm tra trạng thái xác minh ảnh…");
@@ -599,16 +639,24 @@ controls.accept.addEventListener("click", () => {
   }
 });
 controls.redo.addEventListener("click", redoCalibration);
-controls.holeCenter.addEventListener("click", () => {
-  state.mode = state.mode === "hole_center" ? "none" : "hole_center";
+controls.holeBoundary.addEventListener("click", () => {
+  state.mode = state.mode === "hole_boundary" ? "none" : "hole_boundary";
   updateControls();
 });
-controls.clearHoleCenter.addEventListener("click", () => {
-  if (state.holeCenter && window.confirm("Bạn có muốn xóa tâm lỗ đạn đã chọn không?")) {
-    clearHoleCenter();
+controls.undoHole.addEventListener("click", () => {
+  state.holeBoundaryPoints.pop(); state.holeEllipseFit = null; state.holeFitState = "not_fitted"; state.holeCenter = null; invalidateDerived();
+  updateControls(); render();
+});
+controls.clearHole.addEventListener("click", () => {
+  if (state.holeBoundaryPoints.length && window.confirm("Bạn có muốn xóa các điểm mép lỗ đạn không?")) {
+    clearHoleGeometry();
     updateControls();
     render();
   }
+});
+controls.fitHole.addEventListener("click", fitHoleEllipse);
+controls.acceptHole.addEventListener("click", () => {
+  if (state.holeEllipseFit) { state.holeFitState = "accepted"; state.holeCenter = { x_px: state.holeEllipseFit.center_x_px, y_px: state.holeEllipseFit.center_y_px }; updateControls(); render(); }
 });
 controls.derive.addEventListener("click", deriveScore);
 controls.save.addEventListener("click", () => { saveAnnotation().catch(() => { saveStatus.textContent = "Không thể lưu lượt chấm."; }); });
@@ -685,13 +733,13 @@ canvas.addEventListener("pointerdown", (event) => {
     updateControls();
     render();
   }
-  if (state.mode === "hole_center") {
+  if (state.mode === "hole_boundary") {
     const imagePoint = imagePointFromEvent(event);
     if (!imagePoint) {
-      holeCenterStatus.textContent = "Con trỏ nằm ngoài vùng ảnh: chưa chọn tâm lỗ đạn";
+      holeCenterStatus.textContent = "Con trỏ nằm ngoài vùng ảnh: chưa thêm điểm mép lỗ đạn";
       return;
     }
-    setHoleCenter(imagePoint);
+    addHoleBoundaryPoint(imagePoint);
   }
 });
 canvas.addEventListener("pointerup", (event) => {

@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import unittest
 
-from .ellipse import EllipseFitError, fit_human_calibration_ellipse
+from .ellipse import EllipseFitError, fit_human_calibration_ellipse, fit_human_hole_ellipse
 
 
 def ellipse_points(center_x, center_y, major, minor, rotation_deg, count, perturbation=0):
@@ -25,6 +25,18 @@ def ellipse_points(center_x, center_y, major, minor, rotation_deg, count, pertur
 
 
 class EllipseFitTests(unittest.TestCase):
+    def test_hole_ellipse_requires_exactly_eight_and_is_geometry_only(self):
+        points = ellipse_points(412, 275, 18, 9, 47, 8)
+        fitted = fit_human_hole_ellipse(points)
+        self.assertAlmostEqual(fitted.center_x_px, 412, places=3)
+        self.assertAlmostEqual(fitted.center_y_px, 275, places=3)
+        self.assertAlmostEqual(fitted.radius_major_px, 18, places=3)
+        self.assertAlmostEqual(fitted.radius_minor_px, 9, places=3)
+        self.assertAlmostEqual(fitted.rotation_deg, 47, places=3)
+        self.assertLess(fitted.hole_ellipse_rms_residual_px, 1e-3)
+        for invalid in (points[:7], points + [points[0]], [points[0]] * 8):
+            with self.assertRaises(EllipseFitError):
+                fit_human_hole_ellipse(invalid)
     def test_perfect_circle(self):
         fitted = fit_human_calibration_ellipse(ellipse_points(120, 80, 40, 40, 0, 8))
         self.assertAlmostEqual(fitted.center_x_px, 120, places=3)

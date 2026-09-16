@@ -17,7 +17,7 @@ from .manifest import (
     SourceNotFoundError,
     dataset_root_from_environment,
 )
-from .ellipse import EllipseFitError, fit_human_calibration_ellipse
+from .ellipse import EllipseFitError, fit_human_calibration_ellipse, fit_human_hole_ellipse
 from .derivation import DerivationError, derive_provisional_result, load_frozen_reference
 from .annotations import AnnotationError, DuplicateAnnotationError, append_annotation
 
@@ -49,7 +49,7 @@ class CalibrationFitRequest(BaseModel):
 class DeriveRequest(BaseModel):
     source_id: str
     calibration_points: list[CalibrationPoint]
-    hole_center: CalibrationPoint
+    hole_boundary_points: list[CalibrationPoint]
 
 
 class AnnotationRequest(BaseModel):
@@ -57,11 +57,10 @@ class AnnotationRequest(BaseModel):
     annotation_pass: str
     labeler_id: str
     calibration_points: list[CalibrationPoint]
-    hole_center: CalibrationPoint
+    hole_boundary_points: list[CalibrationPoint]
     perspective_status: str
     label_quality: str
     notes: str = ""
-    hole_boundary_points: list[CalibrationPoint] | None = None
 
 
 @app.get("/health")
@@ -104,6 +103,21 @@ async def fit_calibration(request: CalibrationFitRequest) -> dict[str, object]:
     return {"status": "fitted", "ellipse": fitted.public()}
 
 
+@app.post("/api/hole-ellipse/fit")
+async def fit_hole_ellipse(request: CalibrationFitRequest) -> dict[str, object]:
+    """Fit exactly eight browser-supplied human hole-boundary points."""
+    try:
+        fitted = fit_human_hole_ellipse(
+            [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.points]
+        )
+    except EllipseFitError as error:
+        raise HTTPException(
+            status_code=422,
+            detail={"status": "invalid_hole_boundary_points", "message": str(error)},
+        ) from error
+    return {"status": "fitted", "ellipse": fitted.public()}
+
+
 @app.post("/api/derive")
 async def derive_score(request: DeriveRequest) -> dict[str, object]:
     """Derive a provisional score only from submitted human geometry."""
@@ -112,13 +126,12 @@ async def derive_score(request: DeriveRequest) -> dict[str, object]:
         fitted = fit_human_calibration_ellipse(
             [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.calibration_points]
         )
-        hole_center = (
-            request.hole_center.model_dump()
-            if hasattr(request.hole_center, "model_dump")
-            else request.hole_center.dict()
+        hole_ellipse = fit_human_hole_ellipse(
+            [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.hole_boundary_points]
         )
         result = derive_provisional_result(
-            request.source_id, fitted, hole_center, frozen_reference
+            request.source_id, fitted,
+            {"x_px": hole_ellipse.center_x_px, "y_px": hole_ellipse.center_y_px}, frozen_reference
         )
     except SourceNotFoundError as error:
         raise HTTPException(
@@ -130,7 +143,7 @@ async def derive_score(request: DeriveRequest) -> dict[str, object]:
             status_code=422,
             detail={"status": "invalid_human_geometry", "message": str(error)},
         ) from error
-    return {"status": "derived_provisional", "result": result.public()}
+    return {"status": "derived_provisional", "result": result.public(), "hole_ellipse": hole_ellipse.public()}
 
 
 @app.post("/api/annotations", status_code=201)
