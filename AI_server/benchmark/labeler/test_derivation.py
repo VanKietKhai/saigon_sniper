@@ -20,14 +20,14 @@ REFERENCE = load_frozen_reference(Path(__file__).parent.parent / "reference_rule
 
 def ellipse(center_x=100, center_y=200, major=100, minor=100, rotation=0):
     return EllipseFit(center_x, center_y, major, minor, rotation, 0, 0,
-                      minor / major if major else 0, 5)
+                      minor / major if major else 0, 8)
 
 
 class DerivationTests(unittest.TestCase):
     def test_circle_center_and_axis_distances(self):
         fitted = ellipse()
         self.assertAlmostEqual(affine_normalized_distance_mm(fitted, {"x_px": 100, "y_px": 200}, REFERENCE)[0], 0)
-        expected = 15.25 * 0.5
+        expected = 22.75 * 0.5
         self.assertAlmostEqual(affine_normalized_distance_mm(fitted, {"x_px": 150, "y_px": 200}, REFERENCE)[0], expected)
         self.assertAlmostEqual(affine_normalized_distance_mm(fitted, {"x_px": 100, "y_px": 250}, REFERENCE)[0], expected)
 
@@ -36,11 +36,16 @@ class DerivationTests(unittest.TestCase):
         angle = math.radians(30)
         major_hole = {"x_px": 500 + math.cos(angle) * 100, "y_px": 700 + math.sin(angle) * 100}
         minor_hole = {"x_px": 500 - math.sin(angle) * 40, "y_px": 700 + math.cos(angle) * 40}
-        expected = 7.625
+        expected = 11.375
         self.assertAlmostEqual(affine_normalized_distance_mm(fitted, major_hole, REFERENCE)[0], expected, places=8)
         self.assertAlmostEqual(affine_normalized_distance_mm(fitted, minor_hole, REFERENCE)[0], expected, places=8)
         boundary = {"x_px": 500 + math.cos(angle) * 200, "y_px": 700 + math.sin(angle) * 200}
-        self.assertAlmostEqual(affine_normalized_distance_mm(fitted, boundary, REFERENCE)[0], 15.25, places=8)
+        self.assertAlmostEqual(affine_normalized_distance_mm(fitted, boundary, REFERENCE)[0], 22.75, places=8)
+
+    def test_ring_1_calibration_does_not_change_the_frozen_score_limit(self):
+        self.assertAlmostEqual(REFERENCE.calibration_radius_mm, 22.75)
+        self.assertAlmostEqual(REFERENCE.score_1_printed_radius_mm, 22.75)
+        self.assertAlmostEqual(REFERENCE.max_valid_shot_center_radius_mm, 25.0)
 
     def test_invalid_geometry_and_hole_are_rejected(self):
         with self.assertRaises(DerivationError):

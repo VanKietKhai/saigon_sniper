@@ -138,7 +138,7 @@ R_mm * sqrt((u_px / major_radius_px)^2 + (v_px / minor_radius_px)^2)
 ```
 
 where `u_px` and `v_px` are the hole displacement along the normalized ellipse
-major and minor axes, and `R_mm` is the 15.25 mm calibration radius. This is an
+major and minor axes, and `R_mm` is the 22.75 mm outer-ring-1 calibration radius. This is an
 affine / moderate-perspective normalization, not projective homography
 rectification; severe perspective still requires human review or exclusion.
 
@@ -186,3 +186,17 @@ Legacy single-click CSV storage is deliberately not appended with the new
 header. This prevents a restarted ellipse pilot from silently mixing schemas
 with aborted old-UI evidence; preserve that evidence and start a separately
 approved new-pilot storage file.
+
+## Ring-1 target calibration
+
+The current target calibration is `ring1_outer_8pt_v2`: exactly eight
+operator-selected points distributed around the printed outer boundary of score
+ring 1. Its reference diameter is **45.5 mm** and its physical radius is
+**22.75 mm**. The prior 30.5 mm black-area / 4-ring boundary is not used by the
+new workflow. The labeler refits the target from raw points at derive/save time
+and persists the method and reference diameter with each new annotation.
+
+This calibration radius is distinct from the unchanged 25.0 mm maximum valid
+shot-center radius (`22.75 + 2.25 mm` pellet radius). Historical 30.5 mm
+records remain historical evidence and are rejected as an append target for a
+new ring-1 pilot rather than being reinterpreted.

@@ -77,11 +77,11 @@
     "software_version": { "type": "string", "minLength": 1 },
     "image_width_px": { "type": "integer", "minimum": 1 },
     "image_height_px": { "type": "integer", "minimum": 1 },
-    "calibration_method": { "const": "human_selected_points_then_ellipse_fit" },
+    "calibration_method": { "const": "ring1_outer_8pt_v2" },
     "calibration_reference_diameter_mm": { "type": "number", "exclusiveMinimum": 0 },
     "calibration_points": {
       "type": "array",
-      "minItems": 5,
+      "minItems": 8,
       "maxItems": 8,
       "items": { "$ref": "#/$defs/coordinate" }
     },

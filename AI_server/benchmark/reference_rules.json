@@ -30,10 +30,10 @@
     "conceptual_rule": "Every additional 0.25 mm of center distance lowers the score by exactly 0.1 point."
   },
   "labeler_calibration": {
-    "reference": "outer_black_aiming_area_4_ring_boundary",
-    "reference_diameter_mm": 30.5,
-    "method": "human_selected_points_then_ellipse_fit",
-    "points_min": 5,
+    "reference": "outer_boundary_score_ring_1",
+    "reference_diameter_mm": 45.5,
+    "method": "ring1_outer_8pt_v2",
+    "points_min": 8,
     "points_max": 8,
     "fit_type": "ellipse",
     "center_source": "ellipse_derived_center"

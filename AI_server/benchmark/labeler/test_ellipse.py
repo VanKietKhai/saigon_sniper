@@ -57,33 +57,35 @@ class EllipseFitTests(unittest.TestCase):
         self.assertLess(fitted.rotation_deg, 180)
 
     def test_translated_ellipse(self):
-        fitted = fit_human_calibration_ellipse(ellipse_points(1300, 900, 60, 30, 135, 6))
+        fitted = fit_human_calibration_ellipse(ellipse_points(1300, 900, 60, 30, 135, 8))
         self.assertAlmostEqual(fitted.center_x_px, 1300, places=3)
         self.assertAlmostEqual(fitted.center_y_px, 900, places=3)
         self.assertAlmostEqual(fitted.rotation_deg, 135, places=3)
 
-    def test_five_and_eight_points_are_supported(self):
-        for count in (5, 8):
-            fitted = fit_human_calibration_ellipse(ellipse_points(100, 100, 30, 20, 10, count))
-            self.assertEqual(fitted.point_count, count)
+    def test_target_calibration_requires_exactly_eight_points(self):
+        points = ellipse_points(100, 100, 30, 20, 10, 8)
+        self.assertEqual(fit_human_calibration_ellipse(points).point_count, 8)
+        for invalid in (points[:7], points + [points[0]]):
+            with self.assertRaises(EllipseFitError):
+                fit_human_calibration_ellipse(invalid)
 
     def test_invalid_count_and_degenerate_inputs_are_rejected(self):
-        points = ellipse_points(100, 100, 30, 20, 0, 5)
+        points = ellipse_points(100, 100, 30, 20, 0, 8)
         with self.assertRaises(EllipseFitError):
             fit_human_calibration_ellipse(points[:4])
         with self.assertRaises(EllipseFitError):
             fit_human_calibration_ellipse(ellipse_points(100, 100, 30, 20, 0, 9))
         with self.assertRaises(EllipseFitError):
-            fit_human_calibration_ellipse([points[0]] * 5)
+            fit_human_calibration_ellipse([points[0]] * 8)
         with self.assertRaises(EllipseFitError):
-            fit_human_calibration_ellipse([{"x_px": index, "y_px": index} for index in range(5)])
+            fit_human_calibration_ellipse([{"x_px": index, "y_px": index} for index in range(8)])
 
     def test_nonfinite_values_are_rejected(self):
-        points = ellipse_points(100, 100, 30, 20, 0, 5)
+        points = ellipse_points(100, 100, 30, 20, 0, 8)
         points[0]["x_px"] = float("nan")
         with self.assertRaises(EllipseFitError):
             fit_human_calibration_ellipse(points)
-        points = ellipse_points(100, 100, 30, 20, 0, 5)
+        points = ellipse_points(100, 100, 30, 20, 0, 8)
         points[0]["y_px"] = float("inf")
         with self.assertRaises(EllipseFitError):
             fit_human_calibration_ellipse(points)

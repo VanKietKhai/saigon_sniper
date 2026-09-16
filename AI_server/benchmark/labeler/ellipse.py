@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 
 
-MIN_CALIBRATION_POINTS = 5
+MIN_CALIBRATION_POINTS = 8
 MAX_CALIBRATION_POINTS = 8
 
 
@@ -71,7 +71,7 @@ def fit_human_calibration_ellipse(
     points: Sequence[Mapping[str, object]],
 ) -> EllipseFit:
     """Fit only supplied human points; no source image pixels are inspected."""
-    normalized_points = _validate_points(points, MIN_CALIBRATION_POINTS, MAX_CALIBRATION_POINTS, "Calibration")
+    normalized_points = _validate_points(points, MIN_CALIBRATION_POINTS, MAX_CALIBRATION_POINTS, "Target calibration")
     return _fit_ellipse(normalized_points, EllipseFit)
 
 

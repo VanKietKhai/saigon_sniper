@@ -96,6 +96,8 @@ def _validate_reference(reference: FrozenReference) -> None:
         raise DerivationError("Frozen reference contains non-finite values.")
     if reference.calibration_radius_mm <= 0 or reference.max_valid_shot_center_radius_mm <= 0:
         raise DerivationError("Frozen reference contains non-positive radii.")
+    if not math.isclose(reference.calibration_radius_mm, reference.score_1_printed_radius_mm, abs_tol=1e-9):
+        raise DerivationError("Labeler calibration must use the outer score-ring-1 radius.")
     if not math.isclose(
         reference.score_1_printed_radius_mm + reference.pellet_radius_mm,
         reference.max_valid_shot_center_radius_mm,

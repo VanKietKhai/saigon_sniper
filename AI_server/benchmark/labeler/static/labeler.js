@@ -129,7 +129,7 @@ async function loadCalibrationReference() {
   const response = await fetch("/api/calibration/reference");
   if (!response.ok) throw new Error("calibration_reference_unavailable");
   state.calibrationReference = await response.json();
-  calibrationReference.textContent = `${String(state.calibrationReference.reference_diameter_mm).replace(".", ",")} mm mép ngoài vùng đen / vòng 4`;
+  calibrationReference.textContent = `${String(state.calibrationReference.reference_diameter_mm).replace(".", ",")} mm biên ngoài vòng 1`;
 }
 
 function invalidateFit(nextState = "not_fitted") {
@@ -333,7 +333,7 @@ function updateControls() {
   for (const control of Object.values(controls)) control.disabled = !ready;
   controls.undo.disabled = !ready || state.calibrationPoints.length === 0;
   controls.clear.disabled = !ready || state.calibrationPoints.length === 0;
-  controls.fitEllipse.disabled = !ready || state.calibrationPoints.length < 5;
+  controls.fitEllipse.disabled = !ready || state.calibrationPoints.length !== 8;
   controls.accept.disabled = !ready || state.fitState !== "fitted";
   controls.redo.disabled = !ready || state.calibrationPoints.length === 0;
   const holeCenterReady = ready && state.fitState === "accepted" && state.ellipseFit !== null;
@@ -350,7 +350,7 @@ function updateControls() {
   controls.holeBoundary.setAttribute("aria-pressed", String(state.mode === "hole_boundary"));
   controls.loupe.setAttribute("aria-pressed", String(state.loupeEnabled && pixelModeIsActive()));
   calibrationStatus.textContent = ready
-    ? `${state.calibrationPoints.length} / 8 điểm${state.calibrationPoints.length >= 5 ? " (có thể khớp elip)" : " (cần ít nhất 5 điểm)"}`
+    ? `${state.calibrationPoints.length} / 8 điểm${state.calibrationPoints.length === 8 ? " (có thể khớp elip)" : " (cần đúng 8 điểm)"}`
     : "Chưa kích hoạt: cần ảnh JPG đã xác minh";
   fitStatus.textContent = displayFitState(state.fitState);
   fitDetails.textContent = state.ellipseFit
@@ -520,7 +520,7 @@ async function fitHoleEllipse() {
 }
 
 async function fitEllipse() {
-  if (!state.verifiedAndDecoded || state.calibrationPoints.length < 5) return;
+  if (!state.verifiedAndDecoded || state.calibrationPoints.length !== 8) return;
   invalidateFit();
   state.fitState = "fitting";
   updateControls();

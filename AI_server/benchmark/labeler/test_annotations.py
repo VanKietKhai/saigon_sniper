@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import patch
 from fastapi.testclient import TestClient
 from AI_server.benchmark.labeler.app import app
+from AI_server.benchmark.labeler.annotations import FIELDNAMES
 
 POINTS=[{"x_px":100,"y_px":50},{"x_px":135,"y_px":65},{"x_px":150,"y_px":100},{"x_px":135,"y_px":135},{"x_px":100,"y_px":150},{"x_px":65,"y_px":135},{"x_px":50,"y_px":100},{"x_px":65,"y_px":65}]
 HOLE_POINTS=[{"x_px":100+12*math.cos(index*math.pi/4),"y_px":100+8*math.sin(index*math.pi/4)} for index in range(8)]
@@ -21,7 +22,7 @@ class AnnotationPersistenceTests(unittest.TestCase):
   a=self.client.post("/api/annotations",json=self.payload(derived_score_tenths=109,image_sha256="0"*64,rule_set_id="forged")); self.assertEqual(a.status_code,201)
   before=self.rows()[0].copy(); b=self.client.post("/api/annotations",json=self.payload("B")); self.assertEqual(b.status_code,201)
   rows=self.rows(); self.assertEqual(len(rows),2); self.assertEqual(rows[0],before); self.assertNotEqual(rows[0]["annotation_id"],rows[1]["annotation_id"])
-  self.assertEqual({r["annotation_pass"] for r in rows},{"A","B"}); self.assertEqual(rows[0]["review_status"],"unreviewed"); self.assertEqual(rows[0]["rule_set_id"],"saigon_sniper_air_rifle_10m_decimal_v1"); self.assertNotEqual(rows[0]["image_sha256"],"0"*64); self.assertEqual((rows[0]["image_width_px"],rows[0]["image_height_px"]),("3024","3024")); self.assertTrue(rows[0]["annotation_timestamp_utc"].endswith("+00:00")); self.assertEqual(json.loads(rows[0]["calibration_points"]),POINTS); self.assertEqual(json.loads(rows[0]["hole_boundary_points"]),HOLE_POINTS); self.assertEqual(rows[0]["hole_center_method"],"ellipse_8pt_v2"); self.assertAlmostEqual(float(rows[0]["hole_ellipse_center_x_px"]),100,places=3); self.assertTrue(rows[0]["hole_ellipse_rms_residual_px"]); self.assertNotIn("reference_score_tenths",rows[0]); self.assertEqual(rows[0]["notes"],"a,b\nquoted")
+  self.assertEqual({r["annotation_pass"] for r in rows},{"A","B"}); self.assertEqual(rows[0]["review_status"],"unreviewed"); self.assertEqual(rows[0]["rule_set_id"],"saigon_sniper_air_rifle_10m_decimal_v1"); self.assertEqual(rows[0]["calibration_method"],"ring1_outer_8pt_v2"); self.assertEqual(rows[0]["calibration_reference_diameter_mm"],"45.5"); self.assertNotEqual(rows[0]["image_sha256"],"0"*64); self.assertEqual((rows[0]["image_width_px"],rows[0]["image_height_px"]),("3024","3024")); self.assertTrue(rows[0]["annotation_timestamp_utc"].endswith("+00:00")); self.assertEqual(json.loads(rows[0]["calibration_points"]),POINTS); self.assertEqual(json.loads(rows[0]["hole_boundary_points"]),HOLE_POINTS); self.assertEqual(rows[0]["hole_center_method"],"ellipse_8pt_v2"); self.assertAlmostEqual(float(rows[0]["hole_ellipse_center_x_px"]),100,places=3); self.assertTrue(rows[0]["hole_ellipse_rms_residual_px"]); self.assertNotIn("reference_score_tenths",rows[0]); self.assertEqual(rows[0]["notes"],"a,b\nquoted")
  def test_rejects_duplicate_and_bad_operator_input_without_leak(self):
   self.assertEqual(self.client.post("/api/annotations",json=self.payload()).status_code,201)
   duplicate=self.client.post("/api/annotations",json=self.payload()); self.assertEqual(duplicate.status_code,409); self.assertEqual(duplicate.json(),{"detail":{"status":"duplicate_annotation_pass"}})
@@ -31,3 +32,8 @@ class AnnotationPersistenceTests(unittest.TestCase):
   request={"source_id":"RIFLE_SRC_0001","calibration_points":POINTS,"hole_boundary_points":HOLE_POINTS,"hole_center":{"x_px":1,"y_px":1}}
   response=self.client.post("/api/derive",json=request); self.assertEqual(response.status_code,200)
   result=response.json()["result"]; self.assertAlmostEqual(result["hole_center_x_px"],100,places=3); self.assertAlmostEqual(result["hole_center_y_px"],100,places=3)
+ def test_historical_30_5_storage_is_not_silently_mixed(self):
+  with self.path.open("w",newline="",encoding="utf-8") as file:
+   writer=csv.DictWriter(file,fieldnames=FIELDNAMES); writer.writeheader(); writer.writerow({"calibration_method":"human_selected_points_then_ellipse_fit"})
+  response=self.client.post("/api/annotations",json=self.payload())
+  self.assertEqual(response.status_code,422); self.assertEqual(response.json()["detail"]["status"],"historical_calibration_storage_requires_new_pilot_file")
