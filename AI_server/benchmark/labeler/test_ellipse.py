@@ -36,6 +36,38 @@ class EllipseFitTests(unittest.TestCase):
         uneven[1]["x_px"] += 90
         uneven_fit = fit_human_calibration_ellipse(uneven)
         self.assertEqual(calibration_stability(uneven, uneven_fit).quality, "unstable")
+
+    def test_opposite_pairs_are_derived_from_ellipse_order_not_click_order(self):
+        points = ellipse_points(300, 210, 90, 40, 31, 8)
+        # Deliberately simulate a non-clockwise human click order.
+        shuffled = [points[index] for index in (3, 7, 1, 5, 0, 4, 2, 6)]
+        fitted = fit_human_calibration_ellipse(shuffled)
+        diagnostics = calibration_stability(shuffled, fitted)
+        self.assertEqual(len(diagnostics.pairs), 4)
+        self.assertEqual({pair["first"]["clock_label"] for pair in diagnostics.pairs}, {"12h", "1h30", "3h", "4h30"})
+        self.assertEqual({pair["second"]["clock_label"] for pair in diagnostics.pairs}, {"6h", "7h30", "9h", "10h30"})
+        self.assertLess(diagnostics.midpoint_cluster_rms_px, 1e-3)
+
+    def test_elliptical_diameter_lengths_are_not_normalized(self):
+        points = ellipse_points(240, 180, 120, 35, 18, 8)
+        fitted = fit_human_calibration_ellipse(points)
+        diagnostics = calibration_stability(points, fitted)
+        lengths = [math.hypot(
+            pair["first"]["x_px"] - pair["second"]["x_px"],
+            pair["first"]["y_px"] - pair["second"]["y_px"],
+        ) for pair in diagnostics.pairs]
+        self.assertGreater(max(lengths) - min(lengths), 50)
+        self.assertEqual(diagnostics.quality, "good")
+        self.assertAlmostEqual(fitted.radius_major_px, 120, places=3)
+        self.assertAlmostEqual(fitted.radius_minor_px, 35, places=3)
+
+    def test_hole_stability_uses_same_midpoint_diagnostic(self):
+        points = ellipse_points(412, 275, 18, 9, 47, 8)
+        fitted = fit_human_hole_ellipse(points)
+        diagnostics = calibration_stability(points, fitted, "Hole boundary")
+        self.assertEqual(diagnostics.quality, "good")
+        self.assertEqual(len(diagnostics.midpoints), 4)
+        self.assertLess(diagnostics.midpoint_center_offset_px, 1e-3)
     def test_hole_ellipse_requires_exactly_eight_and_is_geometry_only(self):
         points = ellipse_points(412, 275, 18, 9, 47, 8)
         fitted = fit_human_hole_ellipse(points)

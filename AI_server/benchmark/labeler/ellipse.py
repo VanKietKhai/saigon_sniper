@@ -69,16 +69,21 @@ class HoleEllipseFit:
 
 @dataclass(frozen=True)
 class CalibrationStability:
-    """Transient balance diagnostic for the ordered eight ring-1 clicks."""
+    """Transient balance diagnostic for eight points ordered around an ellipse."""
 
     quality: str
     midpoint_cluster_rms_px: float
+    max_midpoint_spread_px: float
     midpoint_center_offset_px: float
     normalized_deviation: float
     midpoints: tuple[tuple[float, float], ...]
+    pairs: tuple[dict[str, object], ...]
 
     def public(self) -> dict[str, object]:
-        return {**asdict(self), "midpoints": [{"x_px": x, "y_px": y} for x, y in self.midpoints]}
+        return {
+            **asdict(self),
+            "midpoints": [{"x_px": x, "y_px": y} for x, y in self.midpoints],
+        }
 
 
 def fit_human_calibration_ellipse(
@@ -95,18 +100,83 @@ def fit_human_hole_ellipse(points: Sequence[Mapping[str, object]]) -> HoleEllips
     return _fit_ellipse(normalized_points, HoleEllipseFit)
 
 
-def calibration_stability(points: Sequence[Mapping[str, object]], ellipse: EllipseFit) -> CalibrationStability:
-    """Measure opposite-pair midpoint balance without changing the ellipse fit."""
-    normalized = _validate_points(points, 8, 8, "Target calibration")
-    midpoints = tuple(((normalized[index][0] + normalized[index + 4][0]) / 2,
-                       (normalized[index][1] + normalized[index + 4][1]) / 2) for index in range(4))
+def calibration_stability(
+    points: Sequence[Mapping[str, object]], ellipse: EllipseFit | HoleEllipseFit,
+    label: str = "Target calibration",
+) -> CalibrationStability:
+    """Measure opposite-pair midpoint balance without changing the ellipse fit.
+
+    The operator may click in any order.  Pairing is therefore derived from
+    ellipse-local angular order, never the order of the raw clicks.  This is a
+    diagnostic only: it neither normalizes diameter lengths nor changes points.
+    """
+    normalized = _validate_points(points, 8, 8, label)
+    ordered = _ellipse_local_angular_order(normalized, ellipse)
+    clock_labels = ("12h", "1h30", "3h", "4h30", "6h", "7h30", "9h", "10h30")
+    pairs: list[dict[str, object]] = []
+    midpoint_values: list[tuple[float, float]] = []
+    for index in range(4):
+        first = ordered[index]
+        second = ordered[index + 4]
+        midpoint = ((first[1][0] + second[1][0]) / 2, (first[1][1] + second[1][1]) / 2)
+        midpoint_values.append(midpoint)
+        pairs.append({
+            "first": _point_diagnostic(first[0], first[1], clock_labels[index]),
+            "second": _point_diagnostic(second[0], second[1], clock_labels[index + 4]),
+            "midpoint": {
+                "x_px": midpoint[0],
+                "y_px": midpoint[1],
+                "distance_to_ellipse_center_px": math.hypot(
+                    midpoint[0] - ellipse.center_x_px, midpoint[1] - ellipse.center_y_px,
+                ),
+            },
+        })
+    midpoints = tuple(midpoint_values)
     mean_x = sum(point[0] for point in midpoints) / 4
     mean_y = sum(point[1] for point in midpoints) / 4
     cluster_rms = math.sqrt(sum((x - mean_x) ** 2 + (y - mean_y) ** 2 for x, y in midpoints) / 4)
+    max_midpoint_spread = max(math.hypot(x - mean_x, y - mean_y) for x, y in midpoints)
     center_offset = math.hypot(mean_x - ellipse.center_x_px, mean_y - ellipse.center_y_px)
     normalized_deviation = max(cluster_rms, center_offset) / math.sqrt(ellipse.radius_major_px * ellipse.radius_minor_px)
     quality = "good" if normalized_deviation <= 0.03 else "usable" if normalized_deviation <= 0.08 else "unstable"
-    return CalibrationStability(quality, cluster_rms, center_offset, normalized_deviation, midpoints)
+    return CalibrationStability(
+        quality, cluster_rms, max_midpoint_spread, center_offset,
+        normalized_deviation, midpoints, tuple(pairs),
+    )
+
+
+def _point_diagnostic(index: int, point: tuple[float, float], clock_label: str) -> dict[str, object]:
+    return {
+        "point_index": index,
+        "x_px": point[0],
+        "y_px": point[1],
+        "clock_label": clock_label,
+    }
+
+
+def _ellipse_local_angular_order(
+    points: Sequence[tuple[float, float]], ellipse: EllipseFit | HoleEllipseFit,
+) -> list[tuple[int, tuple[float, float]]]:
+    """Return raw point indices clockwise from ellipse-local 12 o'clock.
+
+    Scaling by the two fitted radii makes the angular ordering robust for
+    oblique (elliptical) images.  The computed order is UI-only; callers keep
+    and persist the original human point sequence.
+    """
+    rotation = math.radians(ellipse.rotation_deg)
+    cosine, sine = math.cos(rotation), math.sin(rotation)
+    ordered: list[tuple[float, int, tuple[float, float]]] = []
+    for index, (x_value, y_value) in enumerate(points):
+        delta_x = x_value - ellipse.center_x_px
+        delta_y = y_value - ellipse.center_y_px
+        local_x = cosine * delta_x + sine * delta_y
+        local_y = -sine * delta_x + cosine * delta_y
+        angle = math.atan2(local_y / ellipse.radius_minor_px, local_x / ellipse.radius_major_px)
+        # Zero is local 12 o'clock; increasing values travel clockwise in image coordinates.
+        clock_angle = (angle + math.pi / 2) % (2 * math.pi)
+        ordered.append((clock_angle, index, (x_value, y_value)))
+    ordered.sort(key=lambda item: (item[0], item[1]))
+    return [(index, point) for _, index, point in ordered]
 
 
 def _fit_ellipse(normalized_points: list[tuple[float, float]], result_type):

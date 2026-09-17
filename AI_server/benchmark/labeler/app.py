@@ -116,7 +116,12 @@ async def fit_hole_ellipse(request: CalibrationFitRequest) -> dict[str, object]:
             status_code=422,
             detail={"status": "invalid_hole_boundary_points", "message": str(error)},
         ) from error
-    return {"status": "fitted", "ellipse": fitted.public()}
+    points = [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.points]
+    return {
+        "status": "fitted",
+        "ellipse": fitted.public(),
+        "stability": calibration_stability(points, fitted, "Hole boundary").public(),
+    }
 
 
 @app.post("/api/derive")

@@ -31,7 +31,9 @@
             <div><dt>Trạng thái khớp</dt><dd id="fit-status">Chưa khớp</dd></div>
             <div><dt>Chi tiết khớp</dt><dd id="fit-details">—</dd></div>
             <div><dt>Độ ổn định hiệu chuẩn</dt><dd id="calibration-quality">Chưa khớp</dd></div>
+            <div><dt>Tâm tham chiếu điểm 10</dt><dd id="printed-center-status">Chưa đánh dấu (chỉ chẩn đoán)</dd></div>
             <div><dt>Elip lỗ đạn</dt><dd id="hole-center-status">Vui lòng xác nhận hiệu chuẩn trước khi đánh dấu mép lỗ đạn.</dd></div>
+            <div><dt>Độ ổn định mép lỗ</dt><dd id="hole-stability-status">Chưa khớp</dd></div>
             <div><dt>Kết quả tạm tính</dt><dd id="derivation-status">Chưa tính</dd></div>
             <div><dt>Chi tiết kết quả</dt><dd id="derivation-details">—</dd></div>
             <div><dt>Trạng thái xác minh</dt><dd id="identity-status">Chưa kiểm tra</dd></div>
@@ -57,6 +59,7 @@
             <button id="fit-ellipse" type="button" disabled>Khớp elip</button>
             <button id="accept-calibration" type="button" disabled>Xác nhận hiệu chuẩn</button>
             <button id="redo-calibration" type="button" disabled>Làm lại hiệu chuẩn</button>
+            <button id="printed-center-mode" type="button" aria-pressed="false" disabled>Đánh dấu tâm tham chiếu điểm 10</button>
             <button id="hole-boundary-mode" type="button" aria-pressed="false" disabled>Đánh dấu mép lỗ đạn</button>
             <button id="undo-hole-point" type="button" disabled>Hoàn tác điểm lỗ</button>
             <button id="clear-hole-points" type="button" disabled>Xóa điểm mép lỗ</button>
@@ -89,6 +92,7 @@
       </section>
     </main>
     <script src="/static/canvas_transform.js"></script>
+    <script src="/static/ellipse_guides.js"></script>
     <script src="/static/labeler.js"></script>
   </body>
 </html>
