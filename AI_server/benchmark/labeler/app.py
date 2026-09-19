@@ -17,7 +17,7 @@ from .manifest import (
     SourceNotFoundError,
     dataset_root_from_environment,
 )
-from .ellipse import EllipseFitError, calibration_stability, ellipse_point_residuals, fit_human_calibration_ellipse, fit_human_hole_ellipse
+from .ellipse import EllipseFitError, calibration_stability, ellipse_point_residuals, fit_human_calibration_ellipse, fit_human_hole_ellipse, opposite_pair_midpoint_diagnostics
 from .derivation import DerivationError, derive_provisional_result, load_frozen_reference
 from .annotations import AnnotationError, DuplicateAnnotationError, append_annotation, list_saved_annotations
 
@@ -105,7 +105,7 @@ async def fit_calibration(request: CalibrationFitRequest) -> dict[str, object]:
             detail={"status": "invalid_calibration_points", "message": str(error)},
         ) from error
     points = [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.points]
-    return {"status": "fitted", "ellipse": fitted.public(), "point_residuals_px": ellipse_point_residuals(points, fitted), "stability": calibration_stability(points, fitted).public()}
+    return {"status": "fitted", "ellipse": fitted.public(), "point_residuals_px": ellipse_point_residuals(points, fitted), "midpoint_diagnostics": opposite_pair_midpoint_diagnostics(points, fitted).public(), "stability": calibration_stability(points, fitted).public()}
 
 
 @app.post("/api/hole-ellipse/fit")
@@ -123,7 +123,7 @@ async def fit_hole_ellipse(request: CalibrationFitRequest) -> dict[str, object]:
     points = [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.points]
     return {
         "status": "fitted",
-        "ellipse": fitted.public(), "point_residuals_px": ellipse_point_residuals(points, fitted, "Hole boundary"),
+        "ellipse": fitted.public(), "point_residuals_px": ellipse_point_residuals(points, fitted, "Hole boundary"), "midpoint_diagnostics": opposite_pair_midpoint_diagnostics(points, fitted, "Hole boundary").public(),
         "stability": calibration_stability(points, fitted, "Hole boundary").public(),
     }
 

@@ -21,8 +21,10 @@ const fitStatus = document.querySelector("#fit-status");
 const fitDetails = document.querySelector("#fit-details");
 const calibrationQuality = document.querySelector("#calibration-quality");
 const targetGuidedStatus = document.querySelector("#target-guided-status");
+const targetMidpointDiagnostics = document.querySelector("#target-midpoint-diagnostics");
 const holeCenterStatus = document.querySelector("#hole-center-status");
 const holeStabilityStatus = document.querySelector("#hole-stability-status");
+const holeMidpointDiagnostics = document.querySelector("#hole-midpoint-diagnostics");
 const derivationStatus = document.querySelector("#derivation-status");
 const derivationDetails = document.querySelector("#derivation-details");
 const zoomStatus = document.querySelector("#zoom-status");
@@ -115,10 +117,12 @@ const state = {
   fitState: "not_fitted",
   fitError: null,
   calibrationStability: null,
+  targetMidpoints: null,
   calibrationReference: null,
   holeBoundaryPoints: [],
   holeEllipseFit: null,
   holeStability: null,
+  holeMidpoints: null,
   holeFitState: "not_fitted",
   holeCenter: null,
   derivedResult: null,
@@ -153,6 +157,7 @@ function invalidateFit(nextState = "not_fitted") {
   state.fitState = nextState;
   state.fitError = null;
   state.calibrationStability = null;
+  state.targetMidpoints = null;
   clearHoleGeometry();
 }
 
@@ -178,6 +183,7 @@ function clearHoleGeometry() {
   state.holeSnapPreviews = [];
   state.holeEllipseFit = null;
   state.holeStability = null;
+  state.holeMidpoints = null;
   state.holeFitState = "not_fitted";
   state.holeCenter = null;
   if (state.mode === "hole_boundary") state.mode = "none";
@@ -274,6 +280,18 @@ function residualColor(residuals, index) {
   return null;
 }
 
+function midpointPointColor(diagnostics, index) {
+  const worst = diagnostics?.pairs?.reduce((current, pair) => !current || pair.distance_px > current.distance_px ? pair : current, null);
+  if (!worst || (worst.first_point_index !== index && worst.second_point_index !== index)) return null;
+  return worst.severity === "strong_warning" ? "#ff4242" : worst.severity === "warning" ? "#ffd43b" : null;
+}
+
+function midpointSummary(diagnostics) {
+  if (!diagnostics) return "Chưa khớp";
+  const pairs = diagnostics.pairs.map((pair) => `Cặp ${pair.pair_index}: ${pair.distance_px.toFixed(1)} px${pair.severity === "strong_warning" ? " ⚠" : pair.severity === "warning" ? " !" : ""}`);
+  return `${pairs.join(" · ")} · RMS ${diagnostics.midpoint_rms_px.toFixed(2)} px · Max ${diagnostics.midpoint_max_px.toFixed(2)} px`;
+}
+
 function render() {
   resizeCanvasBackingStore();
   const size = canvasCssSize();
@@ -293,7 +311,7 @@ function render() {
   for (const [index, point] of state.calibrationPoints.entries()) {
     const display = transforms.imageToDisplay({ x: point.x_px, y: point.y_px }, state.view);
     context.save();
-    context.strokeStyle = residualColor(targetResiduals, index) || "#f0a928";
+    context.strokeStyle = midpointPointColor(state.targetMidpoints, index) || residualColor(targetResiduals, index) || "#f0a928";
     context.fillStyle = "#14251a";
     context.lineWidth = 2;
     context.beginPath();
@@ -329,7 +347,7 @@ function render() {
   const holeResiduals = guides.pointResiduals(state.holeBoundaryPoints, state.holeEllipseFit);
   for (const [index, point] of state.holeBoundaryPoints.entries()) {
     const display = transforms.imageToDisplay({ x: point.x_px, y: point.y_px }, state.view);
-    context.save(); context.fillStyle = "#ff7a45"; context.strokeStyle = residualColor(holeResiduals, index) || "#23150f"; context.lineWidth = 2;
+    context.save(); context.fillStyle = "#ff7a45"; context.strokeStyle = midpointPointColor(state.holeMidpoints, index) || residualColor(holeResiduals, index) || "#23150f"; context.lineWidth = 2;
     context.beginPath(); context.arc(display.x, display.y, 5, 0, Math.PI * 2); context.fill(); context.stroke();
     context.restore();
   }
@@ -436,6 +454,7 @@ function updateControls() {
     ? `Tâm bia ${state.ellipseFit.center_x_px.toFixed(2)}, ${state.ellipseFit.center_y_px.toFixed(2)} px · Bán kính trục lớn ${state.ellipseFit.radius_major_px.toFixed(2)} px · Bán kính trục nhỏ ${state.ellipseFit.radius_minor_px.toFixed(2)} px · Góc xoay ${state.ellipseFit.rotation_deg.toFixed(2)}° · Sai số RMS ${state.ellipseFit.calibration_fit_residual_px.toFixed(3)} px · Sai số lớn nhất ${state.ellipseFit.max_radial_residual_px.toFixed(3)} px · Tỷ lệ trục ${state.ellipseFit.axis_ratio.toFixed(4)} · ${state.ellipseFit.point_count} điểm`
     : state.fitError ? "Không thể khớp elip từ các điểm đã chọn" : "—";
   calibrationQuality.textContent = stabilitySummary(state.calibrationStability);
+  targetMidpointDiagnostics.textContent = midpointSummary(state.targetMidpoints);
   targetGuidedStatus.textContent = state.calibrationPoints.length === 4
     ? "4 điểm chéo mờ và dấu + là gợi ý cục bộ; bấm Áp dụng rồi tinh chỉnh."
     : state.calibrationPoints.length === 8 ? "Đã có 8 điểm cuối cùng; tâm đỏ là tâm ellipse khớp." : "Đặt trước 4 điểm neo: trên, phải, dưới, trái.";
@@ -445,6 +464,7 @@ function updateControls() {
       ? `Tâm ellipse ${state.holeEllipseFit.center_x_px.toFixed(2)}, ${state.holeEllipseFit.center_y_px.toFixed(2)} px · Trục lớn ${state.holeEllipseFit.radius_major_px.toFixed(2)} px · Trục nhỏ ${state.holeEllipseFit.radius_minor_px.toFixed(2)} px · Góc ${state.holeEllipseFit.rotation_deg.toFixed(2)}° · RMS ${state.holeEllipseFit.hole_ellipse_rms_residual_px.toFixed(3)} px · lớn nhất ${state.holeEllipseFit.hole_ellipse_max_residual_px.toFixed(3)} px`
       : `${state.holeBoundaryPoints.length} / 8 điểm mép lỗ đạn`;
   holeStabilityStatus.textContent = stabilitySummary(state.holeStability);
+  holeMidpointDiagnostics.textContent = midpointSummary(state.holeMidpoints);
   derivationStatus.textContent = state.derivedResult
     ? "TẠM TÍNH — CHƯA LƯU DỮ LIỆU GROUND TRUTH"
     : state.derivationError ? "Không thể tính điểm tạm tính" : "Chưa tính";
@@ -462,7 +482,9 @@ function updateControls() {
 async function saveAnnotation() {
   if (!state.derivedResult || !labelerId.value.trim() || state.savedAnnotation) return;
   const score = state.derivedResult.provisional_score.toFixed(1);
-  if (!window.confirm(`Lưu lượt chấm ${annotationPass.value} cho ${state.sourceId}, người chấm ${labelerId.value.trim()}, điểm tạm tính ${score}?`)) return;
+  const midpointWarning = Math.max(state.targetMidpoints?.midpoint_max_px || 0, state.holeMidpoints?.midpoint_max_px || 0) > 2.5
+    ? "\n\nCó cặp điểm đối diện lệch nhiều. Nên kiểm tra lại trước khi lưu." : "";
+  if (!window.confirm(`Lưu lượt chấm ${annotationPass.value} cho ${state.sourceId}, người chấm ${labelerId.value.trim()}, điểm tạm tính ${score}?${midpointWarning}`)) return;
   saveStatus.textContent = "Đang lưu lượt chấm…";
   const response = await fetch("/api/annotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source_id: state.sourceId, annotation_pass: annotationPass.value, labeler_id: labelerId.value.trim(), calibration_points: state.calibrationPoints, hole_boundary_points: state.holeBoundaryPoints, target_label_quality: targetLabelQuality.value, hole_label_quality: holeLabelQuality.value, target_center_method: "assisted_ellipse_8pt_v1", hole_center_method: "assisted_ellipse_8pt_v1", notes: annotationNotes.value }) });
   const payload = await response.json();
@@ -576,7 +598,7 @@ function addHoleBoundaryPoint(imagePoint) {
     || imagePoint.x < 0 || imagePoint.y < 0) return;
   if (state.holeBoundaryPoints.length >= 8) { holeCenterStatus.textContent = "Đã đủ 8 điểm mép lỗ đạn; không thể thêm điểm thứ 9."; return; }
   state.holeBoundaryPoints.push({ x_px: imagePoint.x, y_px: imagePoint.y });
-  state.holeEllipseFit = null; state.holeStability = null; state.holeFitState = "not_fitted"; state.holeCenter = null;
+  state.holeEllipseFit = null; state.holeStability = null; state.holeMidpoints = null; state.holeFitState = "not_fitted"; state.holeCenter = null;
   updateSnapPreviews("hole");
   invalidateDerived();
   updateControls();
@@ -611,11 +633,11 @@ async function deriveScore() {
 
 async function fitHoleEllipse() {
   if (state.holeBoundaryPoints.length !== 8) return;
-  state.holeFitState = "fitting"; state.holeEllipseFit = null; state.holeCenter = null; invalidateDerived(); updateControls();
+  state.holeFitState = "fitting"; state.holeEllipseFit = null; state.holeMidpoints = null; state.holeCenter = null; invalidateDerived(); updateControls();
   try {
     const response = await fetch("/api/hole-ellipse/fit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ points: state.holeBoundaryPoints }) });
     const payload = await response.json(); if (!response.ok) throw new Error(payload.detail?.status || "invalid_hole_boundary_points");
-    state.holeEllipseFit = payload.ellipse; state.holeStability = payload.stability; state.holeFitState = "fitted";
+    state.holeEllipseFit = payload.ellipse; state.holeStability = payload.stability; state.holeMidpoints = payload.midpoint_diagnostics; state.holeFitState = "fitted";
   } catch (error) { state.holeFitState = "needs_redo"; holeCenterStatus.textContent = displayStatus(error.message); }
   updateControls(); render();
 }
@@ -635,6 +657,7 @@ async function fitEllipse() {
     if (!response.ok) throw new Error(payload.detail?.status || "ellipse_fit_failed");
     state.ellipseFit = payload.ellipse;
     state.calibrationStability = payload.stability;
+    state.targetMidpoints = payload.midpoint_diagnostics;
     state.fitState = "fitted";
   } catch (error) {
     invalidateFit("needs_redo");
@@ -661,7 +684,7 @@ async function fitTargetPreview() {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.detail?.status || "ellipse_fit_failed");
     if (revision !== state.targetEditRevision) return;
-    state.ellipseFit = payload.ellipse; state.calibrationStability = payload.stability; state.fitState = "fitted"; state.fitError = null;
+    state.ellipseFit = payload.ellipse; state.calibrationStability = payload.stability; state.targetMidpoints = payload.midpoint_diagnostics; state.fitState = "fitted"; state.fitError = null;
   } catch (error) {
     if (revision !== state.targetEditRevision) return;
     state.fitState = "needs_redo"; state.fitError = displayStatus(error.message);
@@ -677,7 +700,7 @@ async function fitHolePreview() {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.detail?.status || "invalid_hole_boundary_points");
     if (revision !== state.holeEditRevision) return;
-    state.holeEllipseFit = payload.ellipse; state.holeStability = payload.stability; state.holeFitState = "fitted";
+    state.holeEllipseFit = payload.ellipse; state.holeStability = payload.stability; state.holeMidpoints = payload.midpoint_diagnostics; state.holeFitState = "fitted";
   } catch (error) {
     if (revision !== state.holeEditRevision) return;
     state.holeFitState = "needs_redo"; holeCenterStatus.textContent = displayStatus(error.message);
@@ -693,10 +716,10 @@ function beginHandleDrag(kind, event, imagePoint) {
   canvas.setPointerCapture(event.pointerId);
   if (kind === "target") {
     const invalidated = guides.invalidatedGeometryState("target");
-    state.fitState = invalidated.fitState; state.savedAnnotation = invalidated.savedAnnotation; invalidateDerived();
+    state.fitState = invalidated.fitState; state.ellipseFit = null; state.targetMidpoints = null; state.savedAnnotation = invalidated.savedAnnotation; invalidateDerived();
   } else {
     const invalidated = guides.invalidatedGeometryState("hole");
-    state.holeFitState = invalidated.holeFitState; state.holeCenter = null; state.savedAnnotation = invalidated.savedAnnotation; invalidateDerived();
+    state.holeFitState = invalidated.holeFitState; state.holeEllipseFit = null; state.holeMidpoints = null; state.holeCenter = null; state.savedAnnotation = invalidated.savedAnnotation; invalidateDerived();
   }
   updateControls(); render();
   return true;
@@ -733,7 +756,7 @@ function acceptGhosts(kind) {
     state.holeBoundaryPoints = [...points, ...finalPoints.map((point) => ({x_px: point.x_px, y_px: point.y_px}))];
     state.holeSnapPreviews = [];
     state.holeEditRevision += 1;
-    state.holeEllipseFit = null; state.holeStability = null; state.holeFitState = "not_fitted";
+    state.holeEllipseFit = null; state.holeStability = null; state.holeMidpoints = null; state.holeFitState = "not_fitted";
     invalidateDerived();
   }
   updateControls();

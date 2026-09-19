@@ -86,6 +86,20 @@ class CalibrationStability:
         }
 
 
+@dataclass(frozen=True)
+class OppositePairMidpointDiagnostics:
+    """Diagnostic-only balance of four ellipse-local opposite point pairs."""
+
+    pairs: tuple[dict[str, object], ...]
+    midpoint_rms_px: float
+    midpoint_max_px: float
+    consensus_midpoint_x_px: float
+    consensus_midpoint_y_px: float
+
+    def public(self) -> dict[str, object]:
+        return {**asdict(self), "pairs": list(self.pairs)}
+
+
 def fit_human_calibration_ellipse(
     points: Sequence[Mapping[str, object]],
 ) -> EllipseFit:
@@ -158,6 +172,34 @@ def calibration_stability(
     return CalibrationStability(
         quality, cluster_rms, max_midpoint_spread, center_offset,
         normalized_deviation, midpoints, tuple(pairs),
+    )
+
+
+def opposite_pair_midpoint_diagnostics(
+    points: Sequence[Mapping[str, object]], ellipse: EllipseFit | HoleEllipseFit,
+    label: str = "Ellipse boundary",
+) -> OppositePairMidpointDiagnostics:
+    """Measure four point-pair midpoints against, but never instead of, ellipse center."""
+    normalized = _validate_points(points, 8, 8, label)
+    ordered = _ellipse_local_angular_order(normalized, ellipse)
+    pairs: list[dict[str, object]] = []
+    midpoint_values: list[tuple[float, float]] = []
+    for pair_index in range(4):
+        first_index, first = ordered[pair_index]
+        second_index, second = ordered[pair_index + 4]
+        midpoint_x, midpoint_y = (first[0] + second[0]) / 2, (first[1] + second[1]) / 2
+        dx, dy = midpoint_x - ellipse.center_x_px, midpoint_y - ellipse.center_y_px
+        distance = math.hypot(dx, dy)
+        severity = "strong_warning" if distance > 2.5 else "warning" if distance > 1.0 else "normal"
+        midpoint_values.append((midpoint_x, midpoint_y))
+        pairs.append({"pair_index": pair_index + 1, "first_point_index": first_index,
+                      "second_point_index": second_index, "midpoint_x_px": midpoint_x,
+                      "midpoint_y_px": midpoint_y, "dx_px": dx, "dy_px": dy,
+                      "distance_px": distance, "severity": severity})
+    rms = math.sqrt(sum(pair["distance_px"] ** 2 for pair in pairs) / 4)
+    return OppositePairMidpointDiagnostics(
+        tuple(pairs), rms, max(pair["distance_px"] for pair in pairs),
+        sum(point[0] for point in midpoint_values) / 4, sum(point[1] for point in midpoint_values) / 4,
     )
 
 

@@ -6,7 +6,8 @@ import math
 import unittest
 
 from .ellipse import (EllipseFitError, assisted_diagonal_predictions, calibration_stability,
-                      ellipse_point_residuals, fit_human_calibration_ellipse, fit_human_hole_ellipse)
+                      ellipse_point_residuals, fit_human_calibration_ellipse, fit_human_hole_ellipse,
+                      opposite_pair_midpoint_diagnostics)
 
 
 def ellipse_points(center_x, center_y, major, minor, rotation_deg, count, perturbation=0):
@@ -178,6 +179,22 @@ class EllipseFitTests(unittest.TestCase):
         self.assertEqual(len(residuals), 8)
         self.assertGreater(max(residuals), 2)
         self.assertGreater(max(residuals), sum(residuals) / len(residuals))
+
+    def test_opposite_pair_midpoints_are_zero_for_symmetric_rotated_ellipse(self):
+        points = ellipse_points(300, 200, 80, 35, 31, 8)
+        diagnostics = opposite_pair_midpoint_diagnostics(points, fit_human_calibration_ellipse(points))
+        self.assertEqual(len(diagnostics.pairs), 4)
+        self.assertLess(diagnostics.midpoint_rms_px, 1e-3)
+        self.assertLess(diagnostics.midpoint_max_px, 1e-3)
+
+    def test_midpoint_diagnostics_ignore_click_order_and_flag_shifted_pair(self):
+        points = ellipse_points(300, 200, 80, 35, 31, 8)
+        shifted = [point.copy() for point in points]
+        shifted[1]["x_px"] += 20
+        shuffled = [shifted[index] for index in (3, 7, 1, 5, 0, 4, 2, 6)]
+        diagnostics = opposite_pair_midpoint_diagnostics(shuffled, fit_human_calibration_ellipse(shuffled))
+        self.assertGreater(diagnostics.midpoint_max_px, 2.5)
+        self.assertEqual(max(pair["distance_px"] for pair in diagnostics.pairs), diagnostics.midpoint_max_px)
 
 
 if __name__ == "__main__":
