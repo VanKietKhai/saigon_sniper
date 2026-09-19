@@ -17,7 +17,7 @@ from .manifest import (
     SourceNotFoundError,
     dataset_root_from_environment,
 )
-from .ellipse import EllipseFitError, calibration_stability, fit_human_calibration_ellipse, fit_human_hole_ellipse, guided_opposite_line_center
+from .ellipse import EllipseFitError, calibration_stability, ellipse_point_residuals, fit_human_calibration_ellipse, fit_human_hole_ellipse
 from .derivation import DerivationError, derive_provisional_result, load_frozen_reference
 from .annotations import AnnotationError, DuplicateAnnotationError, append_annotation, list_saved_annotations
 
@@ -105,7 +105,7 @@ async def fit_calibration(request: CalibrationFitRequest) -> dict[str, object]:
             detail={"status": "invalid_calibration_points", "message": str(error)},
         ) from error
     points = [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.points]
-    return {"status": "fitted", "ellipse": fitted.public(), "stability": calibration_stability(points, fitted).public(), "guided_center": guided_opposite_line_center(points, fitted).public()}
+    return {"status": "fitted", "ellipse": fitted.public(), "point_residuals_px": ellipse_point_residuals(points, fitted), "stability": calibration_stability(points, fitted).public()}
 
 
 @app.post("/api/hole-ellipse/fit")
@@ -123,8 +123,8 @@ async def fit_hole_ellipse(request: CalibrationFitRequest) -> dict[str, object]:
     points = [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.points]
     return {
         "status": "fitted",
-        "ellipse": fitted.public(),
-        "stability": calibration_stability(points, fitted, "Hole boundary").public(), "guided_center": guided_opposite_line_center(points, fitted, "Hole boundary").public(),
+        "ellipse": fitted.public(), "point_residuals_px": ellipse_point_residuals(points, fitted, "Hole boundary"),
+        "stability": calibration_stability(points, fitted, "Hole boundary").public(),
     }
 
 
@@ -139,11 +139,9 @@ async def derive_score(request: DeriveRequest) -> dict[str, object]:
         hole_ellipse = fit_human_hole_ellipse(
             [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.hole_boundary_points]
         )
-        target_points = [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.calibration_points]
-        hole_points = [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.hole_boundary_points]
-        target_center = guided_opposite_line_center(target_points, fitted)
-        hole_center = guided_opposite_line_center(hole_points, hole_ellipse, "Hole boundary")
-        result = derive_provisional_result(request.source_id, fitted, {"x_px": hole_center.center_x_px, "y_px": hole_center.center_y_px}, frozen_reference, {"x_px": target_center.center_x_px, "y_px": target_center.center_y_px})
+        target_center = {"x_px": fitted.center_x_px, "y_px": fitted.center_y_px}
+        hole_center = {"x_px": hole_ellipse.center_x_px, "y_px": hole_ellipse.center_y_px}
+        result = derive_provisional_result(request.source_id, fitted, hole_center, frozen_reference, target_center)
     except SourceNotFoundError as error:
         raise HTTPException(
             status_code=404,
@@ -154,7 +152,7 @@ async def derive_score(request: DeriveRequest) -> dict[str, object]:
             status_code=422,
             detail={"status": "invalid_human_geometry", "message": str(error)},
         ) from error
-    return {"status": "derived_provisional", "result": result.public(), "hole_ellipse": hole_ellipse.public(), "target_guided_center": target_center.public(), "hole_guided_center": hole_center.public()}
+    return {"status": "derived_provisional", "result": result.public(), "hole_ellipse": hole_ellipse.public()}
 
 
 @app.post("/api/annotations", status_code=201)

@@ -1,8 +1,6 @@
 "use strict";
 
-// Small, dependency-free helpers shared by the canvas UI and Node tests.
-// Guide endpoints always come from raw human points; no guide may be stretched
-// independently from those points.
+// Small, dependency-free helpers for the assisted eight-point workflow.
 (function exposeEllipseGuides(root) {
   function nearestHandleIndex(points, imagePoint, hitRadiusPx) {
     if (!imagePoint || !Number.isFinite(hitRadiusPx) || hitRadiusPx <= 0) return -1;
@@ -40,44 +38,49 @@
     throw new Error("invalid_geometry_kind");
   }
 
-  function localOppositePairs(points) {
-    if (!Array.isArray(points) || points.length !== 8) throw new Error("need_eight_points");
-    const center = points.reduce((sum, point) => ({ x: sum.x + point.x_px / 8, y: sum.y + point.y_px / 8 }), { x: 0, y: 0 });
-    const ordered = points.map((point, index) => ({ index, angle: Math.atan2(point.y_px - center.y, point.x_px - center.x) }))
-      .sort((a, b) => a.angle - b.angle || a.index - b.index);
-    return [0, 1, 2, 3].map((index) => ({ first_point_index: ordered[index].index, second_point_index: ordered[index + 4].index }));
+  function diagonalGhosts(anchors) {
+    if (!Array.isArray(anchors) || anchors.length !== 4) throw new Error("need_four_anchors");
+    const [north, east, south, west] = anchors;
+    const center = { x_px: (north.x_px + east.x_px + south.x_px + west.x_px) / 4, y_px: (north.y_px + east.y_px + south.y_px + west.y_px) / 4 };
+    const u = {x: (east.x_px - west.x_px) / 2, y: (east.y_px - west.y_px) / 2}, v = {x: (south.x_px - north.x_px) / 2, y: (south.y_px - north.y_px) / 2};
+    const k = Math.SQRT1_2;
+    return [[u.x+v.x,u.y+v.y],[-u.x+v.x,-u.y+v.y],[-u.x-v.x,-u.y-v.y],[u.x-v.x,u.y-v.y]].map(([x,y]) => ({x_px:center.x_px+x*k,y_px:center.y_px+y*k}));
   }
 
-  function guideCenter(points) {
-    const pairs = localOppositePairs(points); let a00 = 0, a01 = 0, a11 = 0, b0 = 0, b1 = 0;
-    const lines = pairs.map((pair) => {
-      const first = points[pair.first_point_index], second = points[pair.second_point_index];
-      const dx = second.x_px - first.x_px, dy = second.y_px - first.y_px, length = Math.hypot(dx, dy);
-      if (length <= 1e-9) throw new Error("zero_length_guide");
-      const nx = -dy / length, ny = dx / length, constant = nx * first.x_px + ny * first.y_px;
-      a00 += nx * nx; a01 += nx * ny; a11 += ny * ny; b0 += nx * constant; b1 += ny * constant;
-      return { nx, ny, constant, first, second };
+  function localEdgeCandidate(imageData, width, height, predicted, radiusPx) {
+    if (!imageData || !Number.isFinite(radiusPx) || radiusPx <= 0) return null;
+    const centerX = Math.round(predicted.x_px), centerY = Math.round(predicted.y_px);
+    let best = null;
+    for (let y = Math.max(1, centerY - radiusPx); y <= Math.min(height - 2, centerY + radiusPx); y += 1) {
+      for (let x = Math.max(1, centerX - radiusPx); x <= Math.min(width - 2, centerX + radiusPx); x += 1) {
+        const distance = Math.hypot(x - predicted.x_px, y - predicted.y_px);
+        if (distance > radiusPx) continue;
+        const luminance = (px, py) => {
+          const offset = (py * width + px) * 4;
+          return imageData[offset] * 0.2126 + imageData[offset + 1] * 0.7152 + imageData[offset + 2] * 0.0722;
+        };
+        const gx = luminance(x + 1, y) - luminance(x - 1, y);
+        const gy = luminance(x, y + 1) - luminance(x, y - 1);
+        const strength = Math.hypot(gx, gy);
+        if (!best || strength > best.strength) best = { x_px: x, y_px: y, strength, distance_px: distance };
+      }
+    }
+    return best;
+  }
+
+  function pointResiduals(points, ellipse) {
+    if (!ellipse || !Array.isArray(points)) return [];
+    const angle = ellipse.rotation_deg * Math.PI / 180;
+    const cosine = Math.cos(angle), sine = Math.sin(angle);
+    return points.map((point) => {
+      const dx = point.x_px - ellipse.center_x_px, dy = point.y_px - ellipse.center_y_px;
+      const x = cosine * dx + sine * dy, y = -sine * dx + cosine * dy;
+      const normalized = Math.sqrt((x / ellipse.radius_major_px) ** 2 + (y / ellipse.radius_minor_px) ** 2);
+      return Math.abs(normalized - 1) * Math.min(ellipse.radius_major_px, ellipse.radius_minor_px);
     });
-    const determinant = a00 * a11 - a01 * a01;
-    if (Math.abs(determinant) <= 1e-12) throw new Error("parallel_guides");
-    const x_px = (a11 * b0 - a01 * b1) / determinant, y_px = (a00 * b1 - a01 * b0) / determinant;
-    const residuals = lines.map((line) => Math.abs(line.nx * x_px + line.ny * y_px - line.constant));
-    return { pairs, lines, x_px, y_px, rms_residual_px: Math.sqrt(residuals.reduce((sum, value) => sum + value * value, 0) / 4), max_residual_px: Math.max(...residuals) };
   }
 
-  function nearestGuideLine(guide, point, radius) {
-    let result = -1, best = radius;
-    guide.lines.forEach((line, index) => {
-      const dx = line.second.x_px - line.first.x_px, dy = line.second.y_px - line.first.y_px;
-      const length2 = dx * dx + dy * dy;
-      const t = Math.max(0, Math.min(1, ((point.x - line.first.x_px) * dx + (point.y - line.first.y_px) * dy) / length2));
-      const distance = Math.hypot(point.x - (line.first.x_px + t * dx), point.y - (line.first.y_px + t * dy));
-      if (distance <= best) { result = index; best = distance; }
-    }); return result;
-  }
-  function translatePair(points, pair, delta) { return points.map((point, index) => index === pair.first_point_index || index === pair.second_point_index ? {x_px: point.x_px + delta.x, y_px: point.y_px + delta.y} : point); }
-
-  const api = { nearestHandleIndex, replaceRawPoint, invalidatedGeometryState, localOppositePairs, guideCenter, nearestGuideLine, translatePair };
+  const api = { nearestHandleIndex, replaceRawPoint, invalidatedGeometryState, diagonalGhosts, localEdgeCandidate, pointResiduals };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.LabelerEllipseGuides = api;
 }(typeof window !== "undefined" ? window : globalThis));

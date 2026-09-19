@@ -5,7 +5,8 @@ from __future__ import annotations
 import math
 import unittest
 
-from .ellipse import EllipseFitError, calibration_stability, fit_human_calibration_ellipse, fit_human_hole_ellipse
+from .ellipse import (EllipseFitError, assisted_diagonal_predictions, calibration_stability,
+                      ellipse_point_residuals, fit_human_calibration_ellipse, fit_human_hole_ellipse)
 
 
 def ellipse_points(center_x, center_y, major, minor, rotation_deg, count, perturbation=0):
@@ -25,6 +26,22 @@ def ellipse_points(center_x, center_y, major, minor, rotation_deg, count, pertur
 
 
 class EllipseFitTests(unittest.TestCase):
+    def test_four_cardinal_anchors_predict_affine_diagonals_without_finalizing_them(self):
+        anchors = [{"x_px": 100, "y_px": 40}, {"x_px": 180, "y_px": 100},
+                   {"x_px": 100, "y_px": 160}, {"x_px": 20, "y_px": 100}]
+        predictions = assisted_diagonal_predictions(anchors)
+        self.assertEqual(len(predictions), 4)
+        self.assertAlmostEqual(predictions[0]["x_px"], 156.5685, places=3)
+        self.assertAlmostEqual(predictions[0]["y_px"], 142.4264, places=3)
+        self.assertEqual(len(anchors), 4, "Ghost predictions must not finalize points.")
+
+    def test_rotated_affine_anchors_produce_expected_diagonals(self):
+        anchors = [{"x_px": 200, "y_px": 70}, {"x_px": 260, "y_px": 150},
+                   {"x_px": 200, "y_px": 230}, {"x_px": 140, "y_px": 150}]
+        predictions = assisted_diagonal_predictions(anchors)
+        self.assertAlmostEqual(sum(point["x_px"] for point in predictions) / 4, 200, places=6)
+        self.assertAlmostEqual(sum(point["y_px"] for point in predictions) / 4, 150, places=6)
+
     def test_calibration_stability_reports_balanced_and_unstable_clicks(self):
         balanced = ellipse_points(200, 150, 80, 40, 25, 8)
         balanced_fit = fit_human_calibration_ellipse(balanced)
@@ -140,6 +157,15 @@ class EllipseFitTests(unittest.TestCase):
         )
         self.assertLess(ideal.calibration_fit_residual_px, 1e-3)
         self.assertGreater(perturbed.calibration_fit_residual_px, ideal.calibration_fit_residual_px + 0.1)
+
+    def test_per_point_residuals_flag_a_bad_final_diagonal(self):
+        points = ellipse_points(100, 100, 50, 30, 20, 8)
+        points[1]["x_px"] += 20
+        fitted = fit_human_calibration_ellipse(points)
+        residuals = ellipse_point_residuals(points, fitted)
+        self.assertEqual(len(residuals), 8)
+        self.assertGreater(max(residuals), 2)
+        self.assertGreater(max(residuals), sum(residuals) / len(residuals))
 
 
 if __name__ == "__main__":

@@ -68,18 +68,6 @@ class HoleEllipseFit:
 
 
 @dataclass(frozen=True)
-class GuidedCenter:
-    center_x_px: float
-    center_y_px: float
-    rms_residual_px: float
-    max_residual_px: float
-    line_pairs: tuple[dict[str, int], ...]
-
-    def public(self) -> dict[str, object]:
-        return {**asdict(self), "line_pairs": list(self.line_pairs)}
-
-
-@dataclass(frozen=True)
 class CalibrationStability:
     """Transient balance diagnostic for eight points ordered around an ellipse."""
 
@@ -110,6 +98,22 @@ def fit_human_hole_ellipse(points: Sequence[Mapping[str, object]]) -> HoleEllips
     """Fit exactly eight human-selected hole-boundary points; inspect no pixels."""
     normalized_points = _validate_points(points, 8, 8, "Hole boundary")
     return _fit_ellipse(normalized_points, HoleEllipseFit)
+
+
+def assisted_diagonal_predictions(anchors: Sequence[Mapping[str, object]]) -> list[dict[str, float]]:
+    """Predict four diagonal candidates from N/E/S/W anchors without finalizing them."""
+    cardinal = _validate_points(anchors, 4, 4, "Assisted ellipse anchors")
+    north, east, south, west = cardinal
+    center_x = sum(point[0] for point in cardinal) / 4
+    center_y = sum(point[1] for point in cardinal) / 4
+    u_x, u_y = (east[0] - west[0]) / 2, (east[1] - west[1]) / 2
+    v_x, v_y = (south[0] - north[0]) / 2, (south[1] - north[1]) / 2
+    scale = math.sqrt(0.5)
+    return [
+        {"x_px": center_x + x_value * scale, "y_px": center_y + y_value * scale}
+        for x_value, y_value in ((u_x + v_x, u_y + v_y), (-u_x + v_x, -u_y + v_y),
+                                 (-u_x - v_x, -u_y - v_y), (u_x - v_x, u_y - v_y))
+    ]
 
 
 def calibration_stability(
@@ -155,36 +159,6 @@ def calibration_stability(
         quality, cluster_rms, max_midpoint_spread, center_offset,
         normalized_deviation, midpoints, tuple(pairs),
     )
-
-
-def guided_opposite_line_center(
-    points: Sequence[Mapping[str, object]], ellipse: EllipseFit | HoleEllipseFit,
-    label: str = "Guided boundary",
-) -> GuidedCenter:
-    """Derive a least-squares intersection from four real opposite-point lines."""
-    normalized = _validate_points(points, 8, 8, label)
-    ordered = _ellipse_local_angular_order(normalized, ellipse)
-    pairs = tuple({"first_point_index": ordered[index][0], "second_point_index": ordered[index + 4][0]} for index in range(4))
-    matrix = np.zeros((2, 2), dtype=np.float64)
-    vector = np.zeros(2, dtype=np.float64)
-    lines: list[tuple[np.ndarray, float]] = []
-    for pair in pairs:
-        first = normalized[pair["first_point_index"]]
-        second = normalized[pair["second_point_index"]]
-        direction = np.asarray((second[0] - first[0], second[1] - first[1]), dtype=np.float64)
-        length = float(np.linalg.norm(direction))
-        if length <= 1e-9:
-            raise EllipseFitError(f"{label} has a zero-length opposite line.")
-        normal = np.asarray((-direction[1] / length, direction[0] / length))
-        constant = float(normal @ np.asarray(first))
-        matrix += np.outer(normal, normal)
-        vector += normal * constant
-        lines.append((normal, constant))
-    if np.linalg.matrix_rank(matrix) < 2:
-        raise EllipseFitError(f"{label} opposite lines cannot define a center.")
-    center = np.linalg.solve(matrix, vector)
-    residuals = [abs(float(normal @ center - constant)) for normal, constant in lines]
-    return GuidedCenter(float(center[0]), float(center[1]), math.sqrt(sum(value * value for value in residuals) / 4), max(residuals), pairs)
 
 
 def _point_diagnostic(index: int, point: tuple[float, float], clock_label: str) -> dict[str, object]:
@@ -277,6 +251,18 @@ def _fit_ellipse(normalized_points: list[tuple[float, float]], result_type):
     if result_type is EllipseFit:
         return EllipseFit(**shared, calibration_fit_residual_px=rms, max_radial_residual_px=maximum)
     return HoleEllipseFit(**shared, hole_ellipse_rms_residual_px=rms, hole_ellipse_max_residual_px=maximum)
+
+
+def ellipse_point_residuals(
+    points: Sequence[Mapping[str, object]], ellipse: EllipseFit | HoleEllipseFit,
+    label: str = "Ellipse boundary",
+) -> list[float]:
+    """Return one non-authoritative radial residual per final human point."""
+    normalized = _validate_points(points, 8, 8, label)
+    return _radial_residuals(
+        normalized, ellipse.center_x_px, ellipse.center_y_px,
+        ellipse.radius_major_px, ellipse.radius_minor_px, ellipse.rotation_deg,
+    )
 
 
 def _validate_points(points: Sequence[Mapping[str, object]], minimum: int, maximum: int, label: str) -> list[tuple[float, float]]:

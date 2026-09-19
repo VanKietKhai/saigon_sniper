@@ -31,9 +31,9 @@
             <div><dt>Trạng thái khớp</dt><dd id="fit-status">Chưa khớp</dd></div>
             <div><dt>Chi tiết khớp</dt><dd id="fit-details">—</dd></div>
             <div><dt>Độ ổn định hiệu chuẩn</dt><dd id="calibration-quality">Chưa khớp</dd></div>
-            <div><dt>Giao tâm bia</dt><dd id="target-guided-status">Chưa hiện 4 đường tâm bia</dd></div>
+            <div><dt>Gợi ý điểm chéo bia</dt><dd id="target-guided-status">Đặt trước 4 điểm neo: trên, phải, dưới, trái.</dd></div>
             <div><dt>Tâm tham chiếu điểm 10</dt><dd id="printed-center-status">Chưa đánh dấu (chỉ chẩn đoán)</dd></div>
-            <div><dt>Elip lỗ đạn</dt><dd id="hole-center-status">Vui lòng xác nhận hiệu chuẩn trước khi đánh dấu mép lỗ đạn.</dd></div>
+            <div><dt>Elip lỗ đạn</dt><dd id="hole-center-status">Khớp 8 điểm mép lỗ để tạo tâm ellipse.</dd></div>
             <div><dt>Độ ổn định mép lỗ</dt><dd id="hole-stability-status">Chưa khớp</dd></div>
             <div><dt>Kết quả tạm tính</dt><dd id="derivation-status">Chưa tính</dd></div>
             <div><dt>Chi tiết kết quả</dt><dd id="derivation-details">—</dd></div>
@@ -54,19 +54,17 @@
             <button id="undo-point" type="button" disabled>Hoàn tác</button>
             <button id="clear-points" type="button" disabled>Xóa điểm hiệu chuẩn</button>
             <button id="fit-ellipse" type="button" disabled>Khớp elip</button>
-            <button id="target-guide-toggle" type="button" aria-pressed="false" disabled>Hiện 4 đường tâm bia</button>
-            <button id="accept-calibration" type="button" disabled>Xác nhận tâm bia</button>
+            <button id="target-ghost-accept" type="button" disabled>Áp dụng 4 điểm chéo gợi ý</button>
             <button id="redo-calibration" type="button" disabled>Làm lại hiệu chuẩn</button>
             <button id="printed-center-mode" type="button" aria-pressed="false" disabled>Đánh dấu tâm tham chiếu điểm 10</button>
             <button id="hole-boundary-mode" type="button" aria-pressed="false" disabled>Đánh dấu mép lỗ đạn</button>
             <button id="undo-hole-point" type="button" disabled>Hoàn tác điểm lỗ</button>
             <button id="clear-hole-points" type="button" disabled>Xóa điểm mép lỗ</button>
             <button id="fit-hole-ellipse" type="button" disabled>Khớp elip lỗ đạn</button>
-            <button id="hole-guide-toggle" type="button" aria-pressed="false" disabled>Hiện 4 đường tâm lỗ</button>
-            <button id="accept-hole-ellipse" type="button" disabled>Xác nhận tâm lỗ đạn</button>
+            <button id="hole-ghost-accept" type="button" disabled>Áp dụng 4 điểm chéo gợi ý lỗ</button>
             <button id="derive-score" type="button" disabled>Tính điểm tạm tính</button>
           </div>
-          <p class="control-help">Chọn đúng 8 điểm phân bố đều trên đường biên ngoài của vòng 1. Không dồn điểm vào một phía; dùng zoom lớn, chế độ pixel và loupe khi cần. Chọn đúng đường biên in của vòng 1 — không chọn mép ngoài tờ bia hoặc biên vùng đen 30,5 mm. Sau khi xác nhận hiệu chuẩn, đánh dấu đúng 8 điểm trên mép lỗ đạn, khớp elip rồi xác nhận tâm.</p>
+          <p class="control-help">Đặt 4 điểm neo theo thứ tự trên, phải, dưới, trái. Bốn điểm chéo mờ chỉ là gợi ý cục bộ: bấm áp dụng rồi kéo tinh chỉnh từng điểm trên đúng biên. Chọn đúng đường biên in ngoài của vòng 1 — không chọn mép tờ bia hoặc vùng đen 30,5 mm.</p>
           <p class="control-help">W/A/S/D hoặc phím mũi tên: di chuyển ảnh. Giữ Shift để đi nhanh, Alt để tinh chỉnh. Giữ Space và kéo chuột trái để di chuyển tạm thời mà không đổi chế độ chấm.</p>
           <p class="provisional-notice">TẠM TÍNH — CHƯA LƯU DỮ LIỆU GROUND TRUTH</p>
           <section id="provisional-score-card" class="provisional-score-card" aria-live="polite">
@@ -93,7 +91,7 @@
       </section>
     </main>
     <script src="/static/canvas_transform.js"></script>
-    <script src="/static/ellipse_guides.js"></script>
-    <script src="/static/labeler.js"></script>
+    <script src="/static/ellipse_guides.js?v=assisted-ellipse-1"></script>
+    <script src="/static/labeler.js?v=assisted-ellipse-1"></script>
   </body>
 </html>
