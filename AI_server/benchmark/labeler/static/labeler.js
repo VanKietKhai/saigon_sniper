@@ -288,8 +288,48 @@ function midpointPointColor(diagnostics, index) {
 
 function midpointSummary(diagnostics) {
   if (!diagnostics) return "Chưa khớp";
-  const pairs = diagnostics.pairs.map((pair) => `Cặp ${pair.pair_index}: ${pair.distance_px.toFixed(1)} px${pair.severity === "strong_warning" ? " ⚠" : pair.severity === "warning" ? " !" : ""}`);
+  const direction = (value, negative, positive) => value < -0.05 ? `${negative} ${Math.abs(value).toFixed(1)}` : value > 0.05 ? `${positive} ${Math.abs(value).toFixed(1)}` : "0";
+  const pairs = diagnostics.pairs.map((pair) => `Cặp ${pair.pair_index}: ${pair.distance_px.toFixed(1)} px (${direction(pair.dx_px, "←", "→")}, ${direction(pair.dy_px, "↑", "↓")})${pair.severity === "strong_warning" ? " ⚠" : pair.severity === "warning" ? " !" : ""}`);
   return `${pairs.join(" · ")} · RMS ${diagnostics.midpoint_rms_px.toFixed(2)} px · Max ${diagnostics.midpoint_max_px.toFixed(2)} px`;
+}
+
+function diagonalCorrections(points) {
+  if (points.length !== 8) return [];
+  const ghosts = guides.diagonalGhosts(points.slice(0, 4));
+  return ghosts.map((ghost, index) => {
+    const pointIndex = index + 4, point = points[pointIndex];
+    const dx_px = ghost.x_px - point.x_px, dy_px = ghost.y_px - point.y_px;
+    return { point_index: pointIndex, point, ghost, dx_px, dy_px, distance_px: Math.hypot(dx_px, dy_px) };
+  });
+}
+
+function drawArrow(start, end, color, width = 2, alpha = 0.8) {
+  const from = transforms.imageToDisplay(start, state.view), to = transforms.imageToDisplay(end, state.view);
+  const angle = Math.atan2(to.y - from.y, to.x - from.x);
+  context.save(); context.globalAlpha = alpha; context.strokeStyle = color; context.fillStyle = color; context.lineWidth = width;
+  context.beginPath(); context.moveTo(from.x, from.y); context.lineTo(to.x, to.y); context.stroke();
+  context.beginPath(); context.moveTo(to.x, to.y); context.lineTo(to.x - 7 * Math.cos(angle - Math.PI / 6), to.y - 7 * Math.sin(angle - Math.PI / 6)); context.lineTo(to.x - 7 * Math.cos(angle + Math.PI / 6), to.y - 7 * Math.sin(angle + Math.PI / 6)); context.closePath(); context.fill(); context.restore();
+}
+
+function drawDirectionalGuidance(points, diagnostics) {
+  diagnostics?.pairs?.filter((pair) => pair.severity !== "normal").forEach((pair) => {
+    const midpoint = {x_px: pair.midpoint_x_px, y_px: pair.midpoint_y_px};
+    drawArrow(midpoint, {x_px: midpoint.x_px + pair.dx_px, y_px: midpoint.y_px + pair.dy_px}, pair.severity === "strong_warning" ? "#ff4242" : "#ffd43b", 2.5);
+  });
+  diagonalCorrections(points).filter((item) => item.distance_px > 1).forEach((item) => {
+    drawArrow(item.point, item.ghost, item.distance_px > 2.5 ? "#ff4242" : "#ffd43b", 1.5, 0.6);
+  });
+}
+
+function directionalMessageAt(imagePoint) {
+  for (const correction of [...diagonalCorrections(state.calibrationPoints), ...diagonalCorrections(state.holeBoundaryPoints)]) {
+    if (correction.distance_px > 1 && Math.hypot(imagePoint.x - correction.point.x_px, imagePoint.y - correction.point.y_px) <= 12 / state.view.scale) {
+      const horizontal = correction.dx_px < -0.05 ? `← ${Math.abs(correction.dx_px).toFixed(1)} px` : correction.dx_px > 0.05 ? `→ ${Math.abs(correction.dx_px).toFixed(1)} px` : "ngang 0 px";
+      const vertical = correction.dy_px < -0.05 ? `↑ ${Math.abs(correction.dy_px).toFixed(1)} px` : correction.dy_px > 0.05 ? `↓ ${Math.abs(correction.dy_px).toFixed(1)} px` : "dọc 0 px";
+      return `Điểm này lệch ${correction.distance_px.toFixed(1)} px. Gợi ý: kéo ${horizontal}, ${vertical}.`;
+    }
+  }
+  return null;
 }
 
 function render() {
@@ -307,6 +347,8 @@ function render() {
     state.image.naturalWidth * scale, state.image.naturalHeight * scale);
   drawGhostSuggestions(state.calibrationPoints, state.targetSnapPreviews, "#b67cff");
   drawGhostSuggestions(state.holeBoundaryPoints, state.holeSnapPreviews, "#b67cff");
+  drawDirectionalGuidance(state.calibrationPoints, state.targetMidpoints);
+  drawDirectionalGuidance(state.holeBoundaryPoints, state.holeMidpoints);
   const targetResiduals = guides.pointResiduals(state.calibrationPoints, state.ellipseFit);
   for (const [index, point] of state.calibrationPoints.entries()) {
     const display = transforms.imageToDisplay({ x: point.x_px, y: point.y_px }, state.view);
@@ -916,7 +958,7 @@ canvas.addEventListener("pointermove", (event) => {
   }
   state.pointerImage = imagePointFromEvent(event);
   cursorStatus.textContent = state.pointerImage
-    ? `X ${state.pointerImage.x.toFixed(2)} px · Y ${state.pointerImage.y.toFixed(2)} px`
+    ? directionalMessageAt(state.pointerImage) || `X ${state.pointerImage.x.toFixed(2)} px · Y ${state.pointerImage.y.toFixed(2)} px`
     : "Ngoài vùng ảnh";
   render();
 });

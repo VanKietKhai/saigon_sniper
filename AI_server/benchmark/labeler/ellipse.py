@@ -188,7 +188,8 @@ def opposite_pair_midpoint_diagnostics(
         first_index, first = ordered[pair_index]
         second_index, second = ordered[pair_index + 4]
         midpoint_x, midpoint_y = (first[0] + second[0]) / 2, (first[1] + second[1]) / 2
-        dx, dy = midpoint_x - ellipse.center_x_px, midpoint_y - ellipse.center_y_px
+        # Correction direction: move the pair midpoint toward the fitted center.
+        dx, dy = ellipse.center_x_px - midpoint_x, ellipse.center_y_px - midpoint_y
         distance = math.hypot(dx, dy)
         severity = "strong_warning" if distance > 2.5 else "warning" if distance > 1.0 else "normal"
         midpoint_values.append((midpoint_x, midpoint_y))

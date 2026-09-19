@@ -36,6 +36,15 @@ class EllipseFitTests(unittest.TestCase):
         self.assertAlmostEqual(predictions[0]["y_px"], 142.4264, places=3)
         self.assertEqual(len(anchors), 4, "Ghost predictions must not finalize points.")
 
+    def test_ghost_correction_vector_points_from_current_diagonal_to_prediction(self):
+        anchors = [{"x_px": 100, "y_px": 40}, {"x_px": 180, "y_px": 100},
+                   {"x_px": 100, "y_px": 160}, {"x_px": 20, "y_px": 100}]
+        ghost = assisted_diagonal_predictions(anchors)[0]
+        current = {"x_px": ghost["x_px"] - 3, "y_px": ghost["y_px"] - 2}
+        self.assertGreater(ghost["x_px"] - current["x_px"], 0)
+        self.assertGreater(ghost["y_px"] - current["y_px"], 0)
+        self.assertAlmostEqual(math.hypot(ghost["x_px"] - current["x_px"], ghost["y_px"] - current["y_px"]), math.sqrt(13))
+
     def test_rotated_affine_anchors_produce_expected_diagonals(self):
         anchors = [{"x_px": 200, "y_px": 70}, {"x_px": 260, "y_px": 150},
                    {"x_px": 200, "y_px": 230}, {"x_px": 140, "y_px": 150}]
@@ -195,6 +204,14 @@ class EllipseFitTests(unittest.TestCase):
         diagnostics = opposite_pair_midpoint_diagnostics(shuffled, fit_human_calibration_ellipse(shuffled))
         self.assertGreater(diagnostics.midpoint_max_px, 2.5)
         self.assertEqual(max(pair["distance_px"] for pair in diagnostics.pairs), diagnostics.midpoint_max_px)
+
+    def test_midpoint_correction_vector_points_from_midpoint_to_fitted_center(self):
+        points = ellipse_points(300, 200, 80, 35, 31, 8)
+        points[1]["x_px"] += 20
+        diagnostics = opposite_pair_midpoint_diagnostics(points, fit_human_calibration_ellipse(points))
+        pair = max(diagnostics.pairs, key=lambda item: item["distance_px"])
+        self.assertLess(pair["dx_px"], 0, "Midpoint right of center needs a left correction.")
+        self.assertAlmostEqual(pair["distance_px"], math.hypot(pair["dx_px"], pair["dy_px"]), places=9)
 
 
 if __name__ == "__main__":
