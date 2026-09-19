@@ -100,6 +100,16 @@ class OppositePairMidpointDiagnostics:
         return {**asdict(self), "pairs": list(self.pairs)}
 
 
+@dataclass(frozen=True)
+class LeaveOneOutPointDiagnostics:
+    """Point-specific evidence from eight independent seven-point ellipse fits."""
+
+    points: tuple[dict[str, object], ...]
+
+    def public(self) -> dict[str, object]:
+        return {"points": list(self.points)}
+
+
 def fit_human_calibration_ellipse(
     points: Sequence[Mapping[str, object]],
 ) -> EllipseFit:
@@ -204,6 +214,90 @@ def opposite_pair_midpoint_diagnostics(
     )
 
 
+def leave_one_out_point_diagnostics(
+    points: Sequence[Mapping[str, object]], ellipse: EllipseFit | HoleEllipseFit,
+    label: str = "Ellipse boundary",
+) -> LeaveOneOutPointDiagnostics:
+    """Measure each point against an ellipse fit that excludes that point.
+
+    This is diagnostic evidence only.  It never alters the supplied points,
+    authoritative full eight-point ellipse, or any scoring input.
+    """
+    normalized = _validate_points(points, 8, 8, label)
+    canonical = _ellipse_local_angular_order(normalized, ellipse)
+    canonical_position = {raw_index: position for position, (raw_index, _) in enumerate(canonical)}
+    clock_labels = ("12h", "1h30", "3h", "4h30", "6h", "7h30", "9h", "10h30")
+    diagnostics: list[dict[str, object]] = []
+    for point_index, point in enumerate(normalized):
+        remaining = [candidate for index, candidate in enumerate(normalized) if index != point_index]
+        leave_one_out_fit = _fit_ellipse(remaining, type(ellipse))
+        nearest_x, nearest_y = _nearest_point_on_ellipse(point, leave_one_out_fit)
+        dx, dy = nearest_x - point[0], nearest_y - point[1]
+        diagnostics.append({
+            "point_index": point_index,
+            "clock_position_index": canonical_position[point_index],
+            "clock_label": clock_labels[canonical_position[point_index]],
+            "loo_residual_px": math.hypot(dx, dy),
+            "loo_dx_px": dx,
+            "loo_dy_px": dy,
+            "loo_distance_px": math.hypot(dx, dy),
+            "nearest_ellipse_x_px": nearest_x,
+            "nearest_ellipse_y_px": nearest_y,
+            "full_fit_residual_px": ellipse_point_residuals(points, ellipse, label)[point_index],
+        })
+    return LeaveOneOutPointDiagnostics(tuple(diagnostics))
+
+
+def pair_point_recommendations(
+    midpoint_diagnostics: OppositePairMidpointDiagnostics,
+    leave_one_out: LeaveOneOutPointDiagnostics,
+    *, low_residual_px: float = 1.0,
+) -> tuple[dict[str, object], ...]:
+    """Recommend which endpoints deserve human inspection, never auto-correction."""
+    by_index = {point["point_index"]: point for point in leave_one_out.points}
+    recommendations: list[dict[str, object]] = []
+    for pair in midpoint_diagnostics.pairs:
+        first = by_index[pair["first_point_index"]]
+        second = by_index[pair["second_point_index"]]
+        first_residual, second_residual = first["loo_residual_px"], second["loo_residual_px"]
+        larger, smaller = (first, second) if first_residual >= second_residual else (second, first)
+        if pair["distance_px"] > low_residual_px and max(first_residual, second_residual) <= low_residual_px:
+            recommendation, recommended_point_index = "check_other_pairs", None
+        elif larger["loo_residual_px"] > smaller["loo_residual_px"] * 1.5 and larger["loo_residual_px"] - smaller["loo_residual_px"] >= 1.0:
+            recommendation, recommended_point_index = "check_point", larger["point_index"]
+        else:
+            recommendation, recommended_point_index = "check_both", None
+        recommendations.append({
+            "pair_index": pair["pair_index"],
+            "recommendation": recommendation,
+            "recommended_point_index": recommended_point_index,
+        })
+    return tuple(recommendations)
+
+
+def target_ghost_loo_confidence(
+    points: Sequence[Mapping[str, object]], leave_one_out: LeaveOneOutPointDiagnostics,
+) -> tuple[dict[str, object], ...]:
+    """Compare target diagonal ghost directions with independent LOO evidence."""
+    normalized = _validate_points(points, 8, 8, "Target calibration")
+    ghosts = assisted_diagonal_predictions(points[:4])
+    by_index = {point["point_index"]: point for point in leave_one_out.points}
+    confidence: list[dict[str, object]] = []
+    for ghost_index, ghost in enumerate(ghosts):
+        point_index = ghost_index + 4
+        point = normalized[point_index]
+        ghost_dx, ghost_dy = ghost["x_px"] - point[0], ghost["y_px"] - point[1]
+        loo = by_index[point_index]
+        ghost_distance, loo_distance = math.hypot(ghost_dx, ghost_dy), loo["loo_distance_px"]
+        if ghost_distance < 0.25 or loo_distance < 0.25:
+            status = "insufficient"
+        else:
+            cosine_similarity = (ghost_dx * loo["loo_dx_px"] + ghost_dy * loo["loo_dy_px"]) / (ghost_distance * loo_distance)
+            status = "high" if cosine_similarity >= 0.5 else "inconsistent"
+        confidence.append({"point_index": point_index, "status": status})
+    return tuple(confidence)
+
+
 def _point_diagnostic(index: int, point: tuple[float, float], clock_label: str) -> dict[str, object]:
     return {
         "point_index": index,
@@ -236,6 +330,42 @@ def _ellipse_local_angular_order(
         ordered.append((clock_angle, index, (x_value, y_value)))
     ordered.sort(key=lambda item: (item[0], item[1]))
     return [(index, point) for _, index, point in ordered]
+
+
+def _nearest_point_on_ellipse(
+    point: tuple[float, float], ellipse: EllipseFit | HoleEllipseFit,
+) -> tuple[float, float]:
+    """Find the nearest rotated-ellipse point with a bounded 1-D minimization."""
+    rotation = math.radians(ellipse.rotation_deg)
+    cosine, sine = math.cos(rotation), math.sin(rotation)
+
+    def point_at(theta: float) -> tuple[float, float]:
+        local_x = ellipse.radius_major_px * math.cos(theta)
+        local_y = ellipse.radius_minor_px * math.sin(theta)
+        return (
+            ellipse.center_x_px + cosine * local_x - sine * local_y,
+            ellipse.center_y_px + sine * local_x + cosine * local_y,
+        )
+
+    def distance_squared(theta: float) -> float:
+        x_value, y_value = point_at(theta)
+        return (x_value - point[0]) ** 2 + (y_value - point[1]) ** 2
+
+    samples = 720
+    step = 2 * math.pi / samples
+    seed = min(range(samples), key=lambda index: distance_squared(index * step)) * step
+    lower, upper = seed - step, seed + step
+    # Golden-section refinement is deterministic and avoids a scipy dependency.
+    ratio = (math.sqrt(5) - 1) / 2
+    left_probe, right_probe = upper - ratio * (upper - lower), lower + ratio * (upper - lower)
+    for _ in range(40):
+        if distance_squared(left_probe) <= distance_squared(right_probe):
+            upper, right_probe = right_probe, left_probe
+            left_probe = upper - ratio * (upper - lower)
+        else:
+            lower, left_probe = left_probe, right_probe
+            right_probe = lower + ratio * (upper - lower)
+    return point_at((lower + upper) / 2)
 
 
 def _fit_ellipse(normalized_points: list[tuple[float, float]], result_type):

@@ -118,11 +118,17 @@ const state = {
   fitError: null,
   calibrationStability: null,
   targetMidpoints: null,
+  targetLeaveOneOut: null,
+  targetPairRecommendations: null,
+  targetGhostLooConfidence: null,
   calibrationReference: null,
   holeBoundaryPoints: [],
   holeEllipseFit: null,
   holeStability: null,
   holeMidpoints: null,
+  holeLeaveOneOut: null,
+  holePairRecommendations: null,
+  diagnosticFocus: null,
   holeFitState: "not_fitted",
   holeCenter: null,
   derivedResult: null,
@@ -158,6 +164,9 @@ function invalidateFit(nextState = "not_fitted") {
   state.fitError = null;
   state.calibrationStability = null;
   state.targetMidpoints = null;
+  state.targetLeaveOneOut = null;
+  state.targetPairRecommendations = null;
+  state.targetGhostLooConfidence = null;
   clearHoleGeometry();
 }
 
@@ -184,6 +193,9 @@ function clearHoleGeometry() {
   state.holeEllipseFit = null;
   state.holeStability = null;
   state.holeMidpoints = null;
+  state.holeLeaveOneOut = null;
+  state.holePairRecommendations = null;
+  state.diagnosticFocus = null;
   state.holeFitState = "not_fitted";
   state.holeCenter = null;
   if (state.mode === "hole_boundary") state.mode = "none";
@@ -286,11 +298,116 @@ function midpointPointColor(diagnostics, index) {
   return worst.severity === "strong_warning" ? "#ff4242" : worst.severity === "warning" ? "#ffd43b" : null;
 }
 
-function midpointSummary(diagnostics) {
-  if (!diagnostics) return "Chưa khớp";
-  const direction = (value, negative, positive) => value < -0.05 ? `${negative} ${Math.abs(value).toFixed(1)}` : value > 0.05 ? `${positive} ${Math.abs(value).toFixed(1)}` : "0";
-  const pairs = diagnostics.pairs.map((pair) => `Cặp ${pair.pair_index}: ${pair.distance_px.toFixed(1)} px (${direction(pair.dx_px, "←", "→")}, ${direction(pair.dy_px, "↑", "↓")})${pair.severity === "strong_warning" ? " ⚠" : pair.severity === "warning" ? " !" : ""}`);
-  return `${pairs.join(" · ")} · RMS ${diagnostics.midpoint_rms_px.toFixed(2)} px · Max ${diagnostics.midpoint_max_px.toFixed(2)} px`;
+function recommendedPoint(index, recommendations) {
+  return recommendations?.some((item) => item.recommendation === "check_point" && item.recommended_point_index === index);
+}
+
+function drawDiagnosticPointRing(display, kind, index, recommendations) {
+  const focused = state.diagnosticFocus?.kind === kind && state.diagnosticFocus.pointIndex === index;
+  if (!focused && !recommendedPoint(index, recommendations)) return;
+  context.save();
+  context.strokeStyle = focused ? "#ff4242" : "#ff9f1c";
+  context.lineWidth = focused ? 3 : 2.5;
+  context.beginPath();
+  context.arc(display.x, display.y, focused ? 11 : 9, 0, Math.PI * 2);
+  context.stroke();
+  context.restore();
+}
+
+function midpointPairNames(kind) {
+  return kind === "target"
+    ? ["12h ↔ 6h", "1h30 ↔ 7h30", "3h ↔ 9h", "4h30 ↔ 10h30"]
+    : ["Trên ↔ Dưới", "Trên-phải ↔ Dưới-trái", "Phải ↔ Trái", "Dưới-phải ↔ Trên-trái"];
+}
+
+function midpointDirection(pair) {
+  const direction = (value, negative, positive, axis) => value < -0.05
+    ? `${negative} ${Math.abs(value).toFixed(1)} px (${axis} ${value.toFixed(1)})`
+    : value > 0.05 ? `${positive} ${Math.abs(value).toFixed(1)} px (${axis} +${value.toFixed(1)})`
+      : `${axis} 0.0 px`;
+  return `${direction(pair.dx_px, "←", "→", "Δx")}, ${direction(pair.dy_px, "↑", "↓", "Δy")}`;
+}
+
+function pointNames(kind) {
+  return kind === "target"
+    ? ["12h", "1h30", "3h", "4h30", "6h", "7h30", "9h", "10h30"]
+    : ["Trên", "Trên-phải", "Phải", "Dưới-phải", "Dưới", "Dưới-trái", "Trái", "Trên-trái"];
+}
+
+function correctionDirection(point) {
+  const direction = (value, negative, positive) => value < -0.05 ? `${negative} ${Math.abs(value).toFixed(1)} px` : value > 0.05 ? `${positive} ${Math.abs(value).toFixed(1)} px` : "0.0 px";
+  return `${direction(point.loo_dx_px, "←", "→")}, ${direction(point.loo_dy_px, "↑", "↓")}`;
+}
+
+function ghostConfidence(point, confidence) {
+  const status = confidence?.find((item) => item.point_index === point.point_index)?.status;
+  return status === "high" ? "Độ tin cậy gợi ý: cao"
+    : status === "inconsistent" ? "Gợi ý không đồng nhất — kiểm tra bằng loupe" : null;
+}
+
+function recommendationForPair(recommendations, pair) {
+  return recommendations?.find((item) => item.pair_index === pair.pair_index) || { recommendation: "check_both", recommended_point_index: null };
+}
+
+function renderMidpointDiagnostics(container, diagnostics, pointDiagnostics, recommendations, kind, points, ghostLooConfidence = null) {
+  if (!diagnostics) {
+    container.textContent = "Chưa khớp";
+    return;
+  }
+  const names = midpointPairNames(kind);
+  const namesByPosition = pointNames(kind);
+  const pointsByIndex = new Map((pointDiagnostics?.points || []).map((point) => [point.point_index, point]));
+  const worstPair = diagnostics.pairs.reduce((worst, pair) => !worst || pair.distance_px > worst.distance_px ? pair : worst, null);
+  const fragment = document.createDocumentFragment();
+  diagnostics.pairs.forEach((pair, index) => {
+    const block = document.createElement("section");
+    const isWorst = pair.pair_index === worstPair.pair_index && worstPair.distance_px > 0.05;
+    block.className = `midpoint-pair midpoint-pair--${pair.severity}${isWorst ? " midpoint-pair--worst" : ""}`;
+    const heading = document.createElement("strong");
+    heading.textContent = `Cặp ${pair.pair_index} — ${names[index]}`;
+    const deviation = document.createElement("span");
+    deviation.textContent = `Lệch: ${pair.distance_px.toFixed(1)} px${isWorst ? " — LỆCH LỚN NHẤT" : ""}`;
+    const guidance = document.createElement("span");
+    guidance.textContent = `Hướng chỉnh trung điểm: ${midpointDirection(pair)}`;
+    block.append(heading, deviation, guidance);
+    const recommendation = recommendationForPair(recommendations, pair);
+    [pair.first_point_index, pair.second_point_index].forEach((pointIndex) => {
+      const point = pointsByIndex.get(pointIndex);
+      if (!point) return;
+      const pointBlock = document.createElement("button");
+      const pointName = namesByPosition[point.clock_position_index];
+      const recommended = recommendation.recommended_point_index === pointIndex;
+      pointBlock.type = "button";
+      pointBlock.className = `loo-point${recommended ? " loo-point--recommended" : ""}`;
+      pointBlock.textContent = `${pointName} · Sai số độc lập: ${point.loo_residual_px.toFixed(1)} px · Gợi ý chỉnh: ${correctionDirection(point)} · Δ tổng: ${point.loo_distance_px.toFixed(1)} px`;
+      pointBlock.addEventListener("click", () => { state.diagnosticFocus = { kind, pointIndex }; render(); });
+      block.append(pointBlock);
+      const confidence = kind === "target" ? ghostConfidence(point, ghostLooConfidence) : null;
+      if (confidence) {
+        const confidenceNode = document.createElement("span");
+        confidenceNode.className = "loo-confidence";
+        confidenceNode.textContent = confidence;
+        block.append(confidenceNode);
+      }
+    });
+    const advice = document.createElement("span");
+    advice.className = "loo-advice";
+    if (recommendation.recommendation === "check_point") {
+      const point = pointsByIndex.get(recommendation.recommended_point_index);
+      advice.textContent = `⚠ Nên kiểm tra điểm ${namesByPosition[point.clock_position_index]} trước`;
+    } else if (recommendation.recommendation === "check_other_pairs") {
+      advice.textContent = "Cặp này lệch so với tâm hiện tại nhưng cả hai điểm riêng lẻ đều ổn. Hãy kiểm tra cặp khác đang kéo tâm ellipse.";
+    } else {
+      advice.textContent = "Cả hai điểm cần kiểm tra";
+    }
+    block.append(advice);
+    fragment.append(block);
+  });
+  const summary = document.createElement("p");
+  summary.className = "midpoint-summary";
+  summary.textContent = `RMS: ${diagnostics.midpoint_rms_px.toFixed(2)} px · Max: ${diagnostics.midpoint_max_px.toFixed(2)} px`;
+  fragment.append(summary);
+  container.replaceChildren(fragment);
 }
 
 function diagonalCorrections(points) {
@@ -361,6 +478,7 @@ function render() {
     context.fill();
     context.stroke();
     context.restore();
+    drawDiagnosticPointRing(display, "target", index, state.targetPairRecommendations);
   }
   if (state.ellipseFit) {
     const ellipse = state.ellipseFit;
@@ -392,6 +510,7 @@ function render() {
     context.save(); context.fillStyle = "#ff7a45"; context.strokeStyle = midpointPointColor(state.holeMidpoints, index) || residualColor(holeResiduals, index) || "#23150f"; context.lineWidth = 2;
     context.beginPath(); context.arc(display.x, display.y, 5, 0, Math.PI * 2); context.fill(); context.stroke();
     context.restore();
+    drawDiagnosticPointRing(display, "hole", index, state.holePairRecommendations);
   }
   if (state.holeEllipseFit) {
     const ellipse = state.holeEllipseFit;
@@ -496,7 +615,7 @@ function updateControls() {
     ? `Tâm bia ${state.ellipseFit.center_x_px.toFixed(2)}, ${state.ellipseFit.center_y_px.toFixed(2)} px · Bán kính trục lớn ${state.ellipseFit.radius_major_px.toFixed(2)} px · Bán kính trục nhỏ ${state.ellipseFit.radius_minor_px.toFixed(2)} px · Góc xoay ${state.ellipseFit.rotation_deg.toFixed(2)}° · Sai số RMS ${state.ellipseFit.calibration_fit_residual_px.toFixed(3)} px · Sai số lớn nhất ${state.ellipseFit.max_radial_residual_px.toFixed(3)} px · Tỷ lệ trục ${state.ellipseFit.axis_ratio.toFixed(4)} · ${state.ellipseFit.point_count} điểm`
     : state.fitError ? "Không thể khớp elip từ các điểm đã chọn" : "—";
   calibrationQuality.textContent = stabilitySummary(state.calibrationStability);
-  targetMidpointDiagnostics.textContent = midpointSummary(state.targetMidpoints);
+  renderMidpointDiagnostics(targetMidpointDiagnostics, state.targetMidpoints, state.targetLeaveOneOut, state.targetPairRecommendations, "target", state.calibrationPoints, state.targetGhostLooConfidence);
   targetGuidedStatus.textContent = state.calibrationPoints.length === 4
     ? "4 điểm chéo mờ và dấu + là gợi ý cục bộ; bấm Áp dụng rồi tinh chỉnh."
     : state.calibrationPoints.length === 8 ? "Đã có 8 điểm cuối cùng; tâm đỏ là tâm ellipse khớp." : "Đặt trước 4 điểm neo: trên, phải, dưới, trái.";
@@ -506,7 +625,7 @@ function updateControls() {
       ? `Tâm ellipse ${state.holeEllipseFit.center_x_px.toFixed(2)}, ${state.holeEllipseFit.center_y_px.toFixed(2)} px · Trục lớn ${state.holeEllipseFit.radius_major_px.toFixed(2)} px · Trục nhỏ ${state.holeEllipseFit.radius_minor_px.toFixed(2)} px · Góc ${state.holeEllipseFit.rotation_deg.toFixed(2)}° · RMS ${state.holeEllipseFit.hole_ellipse_rms_residual_px.toFixed(3)} px · lớn nhất ${state.holeEllipseFit.hole_ellipse_max_residual_px.toFixed(3)} px`
       : `${state.holeBoundaryPoints.length} / 8 điểm mép lỗ đạn`;
   holeStabilityStatus.textContent = stabilitySummary(state.holeStability);
-  holeMidpointDiagnostics.textContent = midpointSummary(state.holeMidpoints);
+  renderMidpointDiagnostics(holeMidpointDiagnostics, state.holeMidpoints, state.holeLeaveOneOut, state.holePairRecommendations, "hole", state.holeBoundaryPoints);
   derivationStatus.textContent = state.derivedResult
     ? "TẠM TÍNH — CHƯA LƯU DỮ LIỆU GROUND TRUTH"
     : state.derivationError ? "Không thể tính điểm tạm tính" : "Chưa tính";
@@ -640,7 +759,7 @@ function addHoleBoundaryPoint(imagePoint) {
     || imagePoint.x < 0 || imagePoint.y < 0) return;
   if (state.holeBoundaryPoints.length >= 8) { holeCenterStatus.textContent = "Đã đủ 8 điểm mép lỗ đạn; không thể thêm điểm thứ 9."; return; }
   state.holeBoundaryPoints.push({ x_px: imagePoint.x, y_px: imagePoint.y });
-  state.holeEllipseFit = null; state.holeStability = null; state.holeMidpoints = null; state.holeFitState = "not_fitted"; state.holeCenter = null;
+  state.holeEllipseFit = null; state.holeStability = null; state.holeMidpoints = null; state.holeLeaveOneOut = null; state.holePairRecommendations = null; state.holeFitState = "not_fitted"; state.holeCenter = null;
   updateSnapPreviews("hole");
   invalidateDerived();
   updateControls();
@@ -675,11 +794,11 @@ async function deriveScore() {
 
 async function fitHoleEllipse() {
   if (state.holeBoundaryPoints.length !== 8) return;
-  state.holeFitState = "fitting"; state.holeEllipseFit = null; state.holeMidpoints = null; state.holeCenter = null; invalidateDerived(); updateControls();
+  state.holeFitState = "fitting"; state.holeEllipseFit = null; state.holeMidpoints = null; state.holeLeaveOneOut = null; state.holePairRecommendations = null; state.holeCenter = null; invalidateDerived(); updateControls();
   try {
     const response = await fetch("/api/hole-ellipse/fit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ points: state.holeBoundaryPoints }) });
     const payload = await response.json(); if (!response.ok) throw new Error(payload.detail?.status || "invalid_hole_boundary_points");
-    state.holeEllipseFit = payload.ellipse; state.holeStability = payload.stability; state.holeMidpoints = payload.midpoint_diagnostics; state.holeFitState = "fitted";
+    state.holeEllipseFit = payload.ellipse; state.holeStability = payload.stability; state.holeMidpoints = payload.midpoint_diagnostics; state.holeLeaveOneOut = payload.leave_one_out_diagnostics; state.holePairRecommendations = payload.pair_point_recommendations; state.holeFitState = "fitted";
   } catch (error) { state.holeFitState = "needs_redo"; holeCenterStatus.textContent = displayStatus(error.message); }
   updateControls(); render();
 }
@@ -700,6 +819,9 @@ async function fitEllipse() {
     state.ellipseFit = payload.ellipse;
     state.calibrationStability = payload.stability;
     state.targetMidpoints = payload.midpoint_diagnostics;
+    state.targetLeaveOneOut = payload.leave_one_out_diagnostics;
+    state.targetPairRecommendations = payload.pair_point_recommendations;
+    state.targetGhostLooConfidence = payload.ghost_loo_confidence;
     state.fitState = "fitted";
   } catch (error) {
     invalidateFit("needs_redo");
@@ -726,7 +848,7 @@ async function fitTargetPreview() {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.detail?.status || "ellipse_fit_failed");
     if (revision !== state.targetEditRevision) return;
-    state.ellipseFit = payload.ellipse; state.calibrationStability = payload.stability; state.targetMidpoints = payload.midpoint_diagnostics; state.fitState = "fitted"; state.fitError = null;
+    state.ellipseFit = payload.ellipse; state.calibrationStability = payload.stability; state.targetMidpoints = payload.midpoint_diagnostics; state.targetLeaveOneOut = payload.leave_one_out_diagnostics; state.targetPairRecommendations = payload.pair_point_recommendations; state.targetGhostLooConfidence = payload.ghost_loo_confidence; state.fitState = "fitted"; state.fitError = null;
   } catch (error) {
     if (revision !== state.targetEditRevision) return;
     state.fitState = "needs_redo"; state.fitError = displayStatus(error.message);
@@ -742,7 +864,7 @@ async function fitHolePreview() {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.detail?.status || "invalid_hole_boundary_points");
     if (revision !== state.holeEditRevision) return;
-    state.holeEllipseFit = payload.ellipse; state.holeStability = payload.stability; state.holeMidpoints = payload.midpoint_diagnostics; state.holeFitState = "fitted";
+    state.holeEllipseFit = payload.ellipse; state.holeStability = payload.stability; state.holeMidpoints = payload.midpoint_diagnostics; state.holeLeaveOneOut = payload.leave_one_out_diagnostics; state.holePairRecommendations = payload.pair_point_recommendations; state.holeFitState = "fitted";
   } catch (error) {
     if (revision !== state.holeEditRevision) return;
     state.holeFitState = "needs_redo"; holeCenterStatus.textContent = displayStatus(error.message);
@@ -758,10 +880,10 @@ function beginHandleDrag(kind, event, imagePoint) {
   canvas.setPointerCapture(event.pointerId);
   if (kind === "target") {
     const invalidated = guides.invalidatedGeometryState("target");
-    state.fitState = invalidated.fitState; state.ellipseFit = null; state.targetMidpoints = null; state.savedAnnotation = invalidated.savedAnnotation; invalidateDerived();
+    state.fitState = invalidated.fitState; state.ellipseFit = null; state.targetMidpoints = null; state.targetLeaveOneOut = null; state.targetPairRecommendations = null; state.targetGhostLooConfidence = null; state.savedAnnotation = invalidated.savedAnnotation; invalidateDerived();
   } else {
     const invalidated = guides.invalidatedGeometryState("hole");
-    state.holeFitState = invalidated.holeFitState; state.holeEllipseFit = null; state.holeMidpoints = null; state.holeCenter = null; state.savedAnnotation = invalidated.savedAnnotation; invalidateDerived();
+    state.holeFitState = invalidated.holeFitState; state.holeEllipseFit = null; state.holeMidpoints = null; state.holeLeaveOneOut = null; state.holePairRecommendations = null; state.holeCenter = null; state.savedAnnotation = invalidated.savedAnnotation; invalidateDerived();
   }
   updateControls(); render();
   return true;
@@ -798,7 +920,7 @@ function acceptGhosts(kind) {
     state.holeBoundaryPoints = [...points, ...finalPoints.map((point) => ({x_px: point.x_px, y_px: point.y_px}))];
     state.holeSnapPreviews = [];
     state.holeEditRevision += 1;
-    state.holeEllipseFit = null; state.holeStability = null; state.holeMidpoints = null; state.holeFitState = "not_fitted";
+    state.holeEllipseFit = null; state.holeStability = null; state.holeMidpoints = null; state.holeLeaveOneOut = null; state.holePairRecommendations = null; state.holeFitState = "not_fitted";
     invalidateDerived();
   }
   updateControls();

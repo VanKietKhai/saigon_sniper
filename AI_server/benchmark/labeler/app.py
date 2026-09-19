@@ -17,7 +17,10 @@ from .manifest import (
     SourceNotFoundError,
     dataset_root_from_environment,
 )
-from .ellipse import EllipseFitError, calibration_stability, ellipse_point_residuals, fit_human_calibration_ellipse, fit_human_hole_ellipse, opposite_pair_midpoint_diagnostics
+from .ellipse import (EllipseFitError, calibration_stability, ellipse_point_residuals,
+                      fit_human_calibration_ellipse, fit_human_hole_ellipse,
+                      leave_one_out_point_diagnostics, opposite_pair_midpoint_diagnostics,
+                      pair_point_recommendations, target_ghost_loo_confidence)
 from .derivation import DerivationError, derive_provisional_result, load_frozen_reference
 from .annotations import AnnotationError, DuplicateAnnotationError, append_annotation, list_saved_annotations
 
@@ -105,7 +108,9 @@ async def fit_calibration(request: CalibrationFitRequest) -> dict[str, object]:
             detail={"status": "invalid_calibration_points", "message": str(error)},
         ) from error
     points = [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.points]
-    return {"status": "fitted", "ellipse": fitted.public(), "point_residuals_px": ellipse_point_residuals(points, fitted), "midpoint_diagnostics": opposite_pair_midpoint_diagnostics(points, fitted).public(), "stability": calibration_stability(points, fitted).public()}
+    midpoint_diagnostics = opposite_pair_midpoint_diagnostics(points, fitted)
+    leave_one_out = leave_one_out_point_diagnostics(points, fitted)
+    return {"status": "fitted", "ellipse": fitted.public(), "point_residuals_px": ellipse_point_residuals(points, fitted), "midpoint_diagnostics": midpoint_diagnostics.public(), "leave_one_out_diagnostics": leave_one_out.public(), "pair_point_recommendations": list(pair_point_recommendations(midpoint_diagnostics, leave_one_out)), "ghost_loo_confidence": list(target_ghost_loo_confidence(points, leave_one_out)), "stability": calibration_stability(points, fitted).public()}
 
 
 @app.post("/api/hole-ellipse/fit")
@@ -121,9 +126,11 @@ async def fit_hole_ellipse(request: CalibrationFitRequest) -> dict[str, object]:
             detail={"status": "invalid_hole_boundary_points", "message": str(error)},
         ) from error
     points = [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.points]
+    midpoint_diagnostics = opposite_pair_midpoint_diagnostics(points, fitted, "Hole boundary")
+    leave_one_out = leave_one_out_point_diagnostics(points, fitted, "Hole boundary")
     return {
         "status": "fitted",
-        "ellipse": fitted.public(), "point_residuals_px": ellipse_point_residuals(points, fitted, "Hole boundary"), "midpoint_diagnostics": opposite_pair_midpoint_diagnostics(points, fitted, "Hole boundary").public(),
+        "ellipse": fitted.public(), "point_residuals_px": ellipse_point_residuals(points, fitted, "Hole boundary"), "midpoint_diagnostics": midpoint_diagnostics.public(), "leave_one_out_diagnostics": leave_one_out.public(), "pair_point_recommendations": list(pair_point_recommendations(midpoint_diagnostics, leave_one_out)),
         "stability": calibration_stability(points, fitted, "Hole boundary").public(),
     }
 

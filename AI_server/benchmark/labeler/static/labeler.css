@@ -83,6 +83,51 @@ dt { color: #f0a928; font-weight: 700; }
 
 dd { margin: 4px 0 0; color: #c7d1ca; }
 
+.midpoint-pair {
+  display: grid;
+  gap: 3px;
+  margin: 10px 0;
+  padding: 8px;
+  border-left: 4px solid #6d7e70;
+  border-radius: 4px;
+  background: #19301f;
+  line-height: 1.35;
+}
+
+.midpoint-pair strong { color: #f4f6f4; }
+
+.loo-point {
+  display: block;
+  width: 100%;
+  margin: 3px 0;
+  padding: 5px;
+  text-align: left;
+  color: #dbe7de;
+  background: #132719;
+  border: 1px solid #496051;
+  border-radius: 4px;
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+.loo-point--recommended { border-color: #ff9f1c; box-shadow: inset 3px 0 #ff9f1c; }
+
+.loo-confidence, .loo-advice { display: block; font-size: 0.86rem; }
+
+.loo-advice { color: #ffd43b; font-weight: 700; }
+
+.midpoint-pair--warning { border-left-color: #ffd43b; }
+
+.midpoint-pair--strong_warning { border-left-color: #ff4242; }
+
+.midpoint-pair--worst {
+  border: 2px solid #ff4242;
+  border-left-width: 6px;
+  background: #482321;
+}
+
+.midpoint-summary { margin: 10px 0 0; font-weight: 700; }
+
 button {
   display: block;
   width: 100%;

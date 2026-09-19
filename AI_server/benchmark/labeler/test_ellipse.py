@@ -5,9 +5,12 @@ from __future__ import annotations
 import math
 import unittest
 
-from .ellipse import (EllipseFitError, assisted_diagonal_predictions, calibration_stability,
-                      ellipse_point_residuals, fit_human_calibration_ellipse, fit_human_hole_ellipse,
-                      opposite_pair_midpoint_diagnostics)
+from .ellipse import (EllipseFitError, LeaveOneOutPointDiagnostics,
+                      OppositePairMidpointDiagnostics, assisted_diagonal_predictions,
+                      calibration_stability, ellipse_point_residuals,
+                      fit_human_calibration_ellipse, fit_human_hole_ellipse,
+                      leave_one_out_point_diagnostics, opposite_pair_midpoint_diagnostics,
+                      pair_point_recommendations, target_ghost_loo_confidence)
 
 
 def ellipse_points(center_x, center_y, major, minor, rotation_deg, count, perturbation=0):
@@ -205,6 +208,23 @@ class EllipseFitTests(unittest.TestCase):
         self.assertGreater(diagnostics.midpoint_max_px, 2.5)
         self.assertEqual(max(pair["distance_px"] for pair in diagnostics.pairs), diagnostics.midpoint_max_px)
 
+    def test_midpoint_pair_numbering_is_canonical_from_local_twelve_oclock(self):
+        points = ellipse_points(300, 200, 80, 35, 31, 8)
+        shuffled = [points[index] for index in (3, 7, 1, 5, 0, 4, 2, 6)]
+        diagnostics = opposite_pair_midpoint_diagnostics(shuffled, fit_human_calibration_ellipse(shuffled))
+        # Clockwise from local 12h: 12↔6, 1h30↔7h30, 3↔9, 4h30↔10h30.
+        expected_coordinates = [
+            (points[6], points[2]), (points[7], points[3]),
+            (points[0], points[4]), (points[1], points[5]),
+        ]
+        for pair, (first, second) in zip(diagnostics.pairs, expected_coordinates):
+            actual_first = shuffled[pair["first_point_index"]]
+            actual_second = shuffled[pair["second_point_index"]]
+            self.assertAlmostEqual(actual_first["x_px"], first["x_px"], places=5)
+            self.assertAlmostEqual(actual_first["y_px"], first["y_px"], places=5)
+            self.assertAlmostEqual(actual_second["x_px"], second["x_px"], places=5)
+            self.assertAlmostEqual(actual_second["y_px"], second["y_px"], places=5)
+
     def test_midpoint_correction_vector_points_from_midpoint_to_fitted_center(self):
         points = ellipse_points(300, 200, 80, 35, 31, 8)
         points[1]["x_px"] += 20
@@ -212,6 +232,81 @@ class EllipseFitTests(unittest.TestCase):
         pair = max(diagnostics.pairs, key=lambda item: item["distance_px"])
         self.assertLess(pair["dx_px"], 0, "Midpoint right of center needs a left correction.")
         self.assertAlmostEqual(pair["distance_px"], math.hypot(pair["dx_px"], pair["dy_px"]), places=9)
+
+    def test_leave_one_out_identifies_one_bad_point_and_points_back_to_ellipse(self):
+        points = ellipse_points(300, 200, 80, 35, 31, 8)
+        points[0]["y_px"] += 15
+        fitted = fit_human_calibration_ellipse(points)
+        diagnostics = leave_one_out_point_diagnostics(points, fitted)
+        worst = max(diagnostics.points, key=lambda item: item["loo_residual_px"])
+        self.assertEqual(worst["point_index"], 0)
+        self.assertGreater(worst["loo_residual_px"], 5)
+        self.assertLess(worst["loo_dy_px"], 0, "The shifted-down point should be corrected upward.")
+        self.assertAlmostEqual(worst["loo_distance_px"], math.hypot(worst["loo_dx_px"], worst["loo_dy_px"]), places=6)
+
+    def test_leave_one_out_keeps_counterpart_low_and_recommends_bad_endpoint(self):
+        points = ellipse_points(300, 200, 80, 35, 31, 8)
+        points[0]["y_px"] += 15
+        fitted = fit_human_calibration_ellipse(points)
+        midpoint = opposite_pair_midpoint_diagnostics(points, fitted)
+        leave_one_out = leave_one_out_point_diagnostics(points, fitted)
+        recommendations = pair_point_recommendations(midpoint, leave_one_out)
+        bad_pair = next(pair for pair in midpoint.pairs if 0 in (pair["first_point_index"], pair["second_point_index"]))
+        recommendation = next(item for item in recommendations if item["pair_index"] == bad_pair["pair_index"])
+        counterpart = bad_pair["second_point_index"] if bad_pair["first_point_index"] == 0 else bad_pair["first_point_index"]
+        by_index = {item["point_index"]: item for item in leave_one_out.points}
+        self.assertLess(by_index[counterpart]["loo_residual_px"], by_index[0]["loo_residual_px"] / 1.5)
+        self.assertEqual(recommendation["recommendation"], "check_point")
+        self.assertEqual(recommendation["recommended_point_index"], 0)
+
+    def test_leave_one_out_names_stay_canonical_after_shuffled_clicks(self):
+        points = ellipse_points(300, 200, 80, 35, 31, 8)
+        shuffled = [points[index] for index in (3, 7, 1, 5, 0, 4, 2, 6)]
+        diagnostics = leave_one_out_point_diagnostics(shuffled, fit_human_calibration_ellipse(shuffled))
+        self.assertEqual(
+            [item["clock_label"] for item in sorted(diagnostics.points, key=lambda item: item["clock_position_index"])],
+            ["12h", "1h30", "3h", "4h30", "6h", "7h30", "9h", "10h30"],
+        )
+
+    def test_similar_endpoint_residuals_recommend_checking_both(self):
+        midpoint = OppositePairMidpointDiagnostics(({
+            "pair_index": 1, "first_point_index": 0, "second_point_index": 4, "distance_px": 2.0,
+        },), 2.0, 2.0, 0.0, 0.0)
+        leave_one_out = LeaveOneOutPointDiagnostics((
+            {"point_index": 0, "loo_residual_px": 2.1}, {"point_index": 4, "loo_residual_px": 1.8},
+        ))
+        recommendation = pair_point_recommendations(midpoint, leave_one_out)[0]
+        self.assertEqual(recommendation["recommendation"], "check_both")
+
+    def test_low_endpoint_residuals_with_high_pair_offset_checks_other_pairs(self):
+        midpoint = OppositePairMidpointDiagnostics(({
+            "pair_index": 1, "first_point_index": 0, "second_point_index": 4, "distance_px": 3.0,
+        },), 3.0, 3.0, 0.0, 0.0)
+        leave_one_out = LeaveOneOutPointDiagnostics((
+            {"point_index": 0, "loo_residual_px": 0.4}, {"point_index": 4, "loo_residual_px": 0.5},
+        ))
+        recommendation = pair_point_recommendations(midpoint, leave_one_out)[0]
+        self.assertEqual(recommendation["recommendation"], "check_other_pairs")
+        self.assertIsNone(recommendation["recommended_point_index"])
+
+    def test_hole_leave_one_out_is_available_and_detects_bad_boundary_point(self):
+        points = ellipse_points(412, 275, 18, 9, 47, 8)
+        points[5]["y_px"] -= 8
+        diagnostics = leave_one_out_point_diagnostics(points, fit_human_hole_ellipse(points), "Hole boundary")
+        self.assertEqual(max(diagnostics.points, key=lambda item: item["loo_residual_px"])["point_index"], 5)
+
+    def test_target_ghost_and_loo_agreement_and_disagreement_are_advisory(self):
+        anchors = [{"x_px": 100, "y_px": 40}, {"x_px": 180, "y_px": 100},
+                   {"x_px": 100, "y_px": 160}, {"x_px": 20, "y_px": 100}]
+        ghosts = assisted_diagonal_predictions(anchors)
+        points = anchors + [{"x_px": ghost["x_px"] - 3, "y_px": ghost["y_px"] - 2} for ghost in ghosts]
+        leave_one_out = LeaveOneOutPointDiagnostics(tuple(
+            {"point_index": index, "loo_dx_px": (3 if index == 4 else -3), "loo_dy_px": (2 if index == 4 else 2), "loo_distance_px": math.sqrt(13)}
+            for index in range(8)
+        ))
+        confidence = {item["point_index"]: item["status"] for item in target_ghost_loo_confidence(points, leave_one_out)}
+        self.assertEqual(confidence[4], "high")
+        self.assertEqual(confidence[5], "inconsistent")
 
 
 if __name__ == "__main__":
