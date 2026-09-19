@@ -316,6 +316,14 @@ function render() {
       ellipse.radius_minor_px * state.view.scale, 0, 0, Math.PI * 2);
     context.stroke();
     context.setLineDash([]);
+    context.strokeStyle = "#ff5a7a";
+    context.lineWidth = 2;
+    context.beginPath();
+    context.moveTo(-9, 0);
+    context.lineTo(9, 0);
+    context.moveTo(0, -9);
+    context.lineTo(0, 9);
+    context.stroke();
     context.restore();
   }
   const holeResiduals = guides.pointResiduals(state.holeBoundaryPoints, state.holeEllipseFit);
@@ -331,18 +339,6 @@ function render() {
     context.save(); context.translate(center.x, center.y); context.rotate((ellipse.rotation_deg * Math.PI) / 180);
     context.strokeStyle = "#74e86f"; context.lineWidth = 2; context.setLineDash([5, 3]); context.beginPath();
     context.ellipse(0, 0, ellipse.radius_major_px * state.view.scale, ellipse.radius_minor_px * state.view.scale, 0, 0, Math.PI * 2); context.stroke(); context.setLineDash([]); context.restore();
-  }
-  if (state.ellipseFit) {
-    const display = transforms.imageToDisplay({x_px: state.ellipseFit.center_x_px, y_px: state.ellipseFit.center_y_px}, state.view);
-    context.save();
-    const drawCenterX = (color, width) => {
-      context.strokeStyle = color; context.lineWidth = width; context.lineCap = "round";
-      context.beginPath(); context.moveTo(display.x - 10, display.y - 10); context.lineTo(display.x + 10, display.y + 10);
-      context.moveTo(display.x + 10, display.y - 10); context.lineTo(display.x - 10, display.y + 10); context.stroke();
-    };
-    drawCenterX("#ffffff", 6);
-    drawCenterX("#d90000", 3);
-    context.restore();
   }
   if (state.holeEllipseFit) {
     const display = transforms.imageToDisplay(

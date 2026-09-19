@@ -39,9 +39,10 @@ class AnnotationPersistenceTests(unittest.TestCase):
   self.assertEqual(with_reference.json()["result"],baseline.json()["result"])
  def test_target_fit_returns_transient_stability_diagnostics(self):
   response=self.client.post("/api/calibration/fit",json={"points":POINTS})
-  self.assertEqual(response.status_code,200); stability=response.json()["stability"]
+  self.assertEqual(response.status_code,200); payload=response.json(); stability=payload["stability"]
   self.assertIn(stability["quality"],{"good","usable","unstable"}); self.assertEqual(len(stability["midpoints"]),4); self.assertEqual(len(stability["pairs"]),4)
   self.assertEqual({pair["first"]["clock_label"] for pair in stability["pairs"]},{"12h","1h30","3h","4h30"})
+  self.assertAlmostEqual(payload["ellipse"]["center_x_px"],100,places=3); self.assertAlmostEqual(payload["ellipse"]["center_y_px"],100,places=3)
  def test_hole_fit_returns_the_same_opposite_pair_diagnostics(self):
   response=self.client.post("/api/hole-ellipse/fit",json={"points":HOLE_POINTS})
   self.assertEqual(response.status_code,200); stability=response.json()["stability"]
