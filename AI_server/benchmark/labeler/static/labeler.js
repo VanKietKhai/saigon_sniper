@@ -19,6 +19,7 @@ const calibrationStatus = document.querySelector("#calibration-status");
 const calibrationReference = document.querySelector("#calibration-reference");
 const fitStatus = document.querySelector("#fit-status");
 const fitDetails = document.querySelector("#fit-details");
+const centerComparison = document.querySelector("#center-comparison");
 const calibrationQuality = document.querySelector("#calibration-quality");
 const targetGuidedStatus = document.querySelector("#target-guided-status");
 const targetMidpointDiagnostics = document.querySelector("#target-midpoint-diagnostics");
@@ -121,6 +122,7 @@ const state = {
   targetLeaveOneOut: null,
   targetPairRecommendations: null,
   targetGhostLooConfidence: null,
+  cardinalProjectiveCenter: null,
   calibrationReference: null,
   holeBoundaryPoints: [],
   holeEllipseFit: null,
@@ -167,6 +169,7 @@ function invalidateFit(nextState = "not_fitted") {
   state.targetLeaveOneOut = null;
   state.targetPairRecommendations = null;
   state.targetGhostLooConfidence = null;
+  state.cardinalProjectiveCenter = null;
   clearHoleGeometry();
 }
 
@@ -438,6 +441,36 @@ function drawDirectionalGuidance(points, diagnostics) {
   });
 }
 
+function drawCardinalProjectiveDiagnostic() {
+  const diagnostic = state.cardinalProjectiveCenter;
+  if (!diagnostic?.available) return;
+  const drawDiameter = (diameter) => {
+    const first = transforms.imageToDisplay(diameter.first, state.view);
+    const second = transforms.imageToDisplay(diameter.second, state.view);
+    context.beginPath(); context.moveTo(first.x, first.y); context.lineTo(second.x, second.y); context.stroke();
+  };
+  context.save();
+  context.strokeStyle = "#43e0bf";
+  context.lineWidth = 1;
+  context.globalAlpha = 0.55;
+  context.setLineDash([3, 5]);
+  drawDiameter(diagnostic.vertical_diameter);
+  drawDiameter(diagnostic.horizontal_diameter);
+  const center = transforms.imageToDisplay(
+    { x: diagnostic.cardinal_center_x_px, y: diagnostic.cardinal_center_y_px }, state.view,
+  );
+  context.globalAlpha = 1;
+  context.setLineDash([]);
+  context.fillStyle = "#43e0bf";
+  context.strokeStyle = "#062d27";
+  context.lineWidth = 2;
+  context.beginPath();
+  context.moveTo(center.x, center.y - 7); context.lineTo(center.x + 7, center.y);
+  context.lineTo(center.x, center.y + 7); context.lineTo(center.x - 7, center.y);
+  context.closePath(); context.fill(); context.stroke();
+  context.restore();
+}
+
 function directionalMessageAt(imagePoint) {
   for (const correction of [...diagonalCorrections(state.calibrationPoints), ...diagonalCorrections(state.holeBoundaryPoints)]) {
     if (correction.distance_px > 1 && Math.hypot(imagePoint.x - correction.point.x_px, imagePoint.y - correction.point.y_px) <= 12 / state.view.scale) {
@@ -466,6 +499,7 @@ function render() {
   drawGhostSuggestions(state.holeBoundaryPoints, state.holeSnapPreviews, "#b67cff");
   drawDirectionalGuidance(state.calibrationPoints, state.targetMidpoints);
   drawDirectionalGuidance(state.holeBoundaryPoints, state.holeMidpoints);
+  drawCardinalProjectiveDiagnostic();
   const targetResiduals = guides.pointResiduals(state.calibrationPoints, state.ellipseFit);
   for (const [index, point] of state.calibrationPoints.entries()) {
     const display = transforms.imageToDisplay({ x: point.x_px, y: point.y_px }, state.view);
@@ -612,13 +646,17 @@ function updateControls() {
     : "Chưa kích hoạt: cần ảnh JPG đã xác minh";
   fitStatus.textContent = displayFitState(state.fitState);
   fitDetails.textContent = state.ellipseFit
-    ? `Tâm bia ${state.ellipseFit.center_x_px.toFixed(2)}, ${state.ellipseFit.center_y_px.toFixed(2)} px · Bán kính trục lớn ${state.ellipseFit.radius_major_px.toFixed(2)} px · Bán kính trục nhỏ ${state.ellipseFit.radius_minor_px.toFixed(2)} px · Góc xoay ${state.ellipseFit.rotation_deg.toFixed(2)}° · Sai số RMS ${state.ellipseFit.calibration_fit_residual_px.toFixed(3)} px · Sai số lớn nhất ${state.ellipseFit.max_radial_residual_px.toFixed(3)} px · Tỷ lệ trục ${state.ellipseFit.axis_ratio.toFixed(4)} · ${state.ellipseFit.point_count} điểm`
+    ? `Tâm ellipse hiện tại ${state.ellipseFit.center_x_px.toFixed(2)}, ${state.ellipseFit.center_y_px.toFixed(2)} px · Bán kính trục lớn ${state.ellipseFit.radius_major_px.toFixed(2)} px · Bán kính trục nhỏ ${state.ellipseFit.radius_minor_px.toFixed(2)} px · Góc xoay ${state.ellipseFit.rotation_deg.toFixed(2)}° · Sai số RMS ${state.ellipseFit.calibration_fit_residual_px.toFixed(3)} px · Sai số lớn nhất ${state.ellipseFit.max_radial_residual_px.toFixed(3)} px · Tỷ lệ trục ${state.ellipseFit.axis_ratio.toFixed(4)} · ${state.ellipseFit.point_count} điểm`
     : state.fitError ? "Không thể khớp elip từ các điểm đã chọn" : "—";
+  const cardinal = state.cardinalProjectiveCenter;
+  centerComparison.textContent = !state.ellipseFit ? "Chưa khớp"
+    : !cardinal?.available ? "Tâm giao hai đường kính: không khả dụng (hai đường gần song song)."
+      : `Tâm ellipse hiện tại: (${cardinal.ellipse_center_x_px.toFixed(2)}, ${cardinal.ellipse_center_y_px.toFixed(2)}) px · Tâm giao hai đường kính: (${cardinal.cardinal_center_x_px.toFixed(2)}, ${cardinal.cardinal_center_y_px.toFixed(2)}) px · Chênh lệch: Δx ${cardinal.dx_px.toFixed(2)} px, Δy ${cardinal.dy_px.toFixed(2)} px, tổng ${cardinal.distance_px.toFixed(2)} px`;
   calibrationQuality.textContent = stabilitySummary(state.calibrationStability);
   renderMidpointDiagnostics(targetMidpointDiagnostics, state.targetMidpoints, state.targetLeaveOneOut, state.targetPairRecommendations, "target", state.calibrationPoints, state.targetGhostLooConfidence);
   targetGuidedStatus.textContent = state.calibrationPoints.length === 4
     ? "4 điểm chéo mờ và dấu + là gợi ý cục bộ; bấm Áp dụng rồi tinh chỉnh."
-    : state.calibrationPoints.length === 8 ? "Đã có 8 điểm cuối cùng; tâm đỏ là tâm ellipse khớp." : "Đặt trước 4 điểm neo: trên, phải, dưới, trái.";
+    : state.calibrationPoints.length === 8 ? "Đã có 8 điểm cuối cùng; tâm đỏ là tâm ellipse khớp, hình thoi xanh là tâm giao hai đường kính (chẩn đoán)." : "Đặt trước 4 điểm neo: trên, phải, dưới, trái.";
   holeCenterStatus.textContent = !holeCenterReady
     ? "Vui lòng xác nhận hiệu chuẩn trước khi đánh dấu mép lỗ đạn."
     : state.holeEllipseFit
@@ -822,6 +860,7 @@ async function fitEllipse() {
     state.targetLeaveOneOut = payload.leave_one_out_diagnostics;
     state.targetPairRecommendations = payload.pair_point_recommendations;
     state.targetGhostLooConfidence = payload.ghost_loo_confidence;
+    state.cardinalProjectiveCenter = payload.cardinal_projective_center;
     state.fitState = "fitted";
   } catch (error) {
     invalidateFit("needs_redo");
@@ -848,7 +887,7 @@ async function fitTargetPreview() {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.detail?.status || "ellipse_fit_failed");
     if (revision !== state.targetEditRevision) return;
-    state.ellipseFit = payload.ellipse; state.calibrationStability = payload.stability; state.targetMidpoints = payload.midpoint_diagnostics; state.targetLeaveOneOut = payload.leave_one_out_diagnostics; state.targetPairRecommendations = payload.pair_point_recommendations; state.targetGhostLooConfidence = payload.ghost_loo_confidence; state.fitState = "fitted"; state.fitError = null;
+    state.ellipseFit = payload.ellipse; state.calibrationStability = payload.stability; state.targetMidpoints = payload.midpoint_diagnostics; state.targetLeaveOneOut = payload.leave_one_out_diagnostics; state.targetPairRecommendations = payload.pair_point_recommendations; state.targetGhostLooConfidence = payload.ghost_loo_confidence; state.cardinalProjectiveCenter = payload.cardinal_projective_center; state.fitState = "fitted"; state.fitError = null;
   } catch (error) {
     if (revision !== state.targetEditRevision) return;
     state.fitState = "needs_redo"; state.fitError = displayStatus(error.message);
@@ -880,7 +919,7 @@ function beginHandleDrag(kind, event, imagePoint) {
   canvas.setPointerCapture(event.pointerId);
   if (kind === "target") {
     const invalidated = guides.invalidatedGeometryState("target");
-    state.fitState = invalidated.fitState; state.ellipseFit = null; state.targetMidpoints = null; state.targetLeaveOneOut = null; state.targetPairRecommendations = null; state.targetGhostLooConfidence = null; state.savedAnnotation = invalidated.savedAnnotation; invalidateDerived();
+    state.fitState = invalidated.fitState; state.ellipseFit = null; state.targetMidpoints = null; state.targetLeaveOneOut = null; state.targetPairRecommendations = null; state.targetGhostLooConfidence = null; state.cardinalProjectiveCenter = null; state.savedAnnotation = invalidated.savedAnnotation; invalidateDerived();
   } else {
     const invalidated = guides.invalidatedGeometryState("hole");
     state.holeFitState = invalidated.holeFitState; state.holeEllipseFit = null; state.holeMidpoints = null; state.holeLeaveOneOut = null; state.holePairRecommendations = null; state.holeCenter = null; state.savedAnnotation = invalidated.savedAnnotation; invalidateDerived();

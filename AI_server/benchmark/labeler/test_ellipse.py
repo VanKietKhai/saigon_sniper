@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import math
 import unittest
+from unittest.mock import patch
 
 from .ellipse import (EllipseFitError, LeaveOneOutPointDiagnostics,
                       OppositePairMidpointDiagnostics, assisted_diagonal_predictions,
-                      calibration_stability, ellipse_point_residuals,
+                      calibration_stability, cardinal_projective_center, ellipse_point_residuals,
                       fit_human_calibration_ellipse, fit_human_hole_ellipse,
                       leave_one_out_point_diagnostics, opposite_pair_midpoint_diagnostics,
                       pair_point_recommendations, target_ghost_loo_confidence)
@@ -29,7 +30,60 @@ def ellipse_points(center_x, center_y, major, minor, rotation_deg, count, pertur
     return points
 
 
+def projective_circle_points(center_x, center_y, radius):
+    """Eight circle points under a fixed non-affine image homography."""
+    homography = ((1.12, 0.18, 140), (0.09, 0.94, 75), (0.0022, -0.0014, 1))
+
+    def project(x_value, y_value):
+        denominator = homography[2][0] * x_value + homography[2][1] * y_value + homography[2][2]
+        return {
+            "x_px": (homography[0][0] * x_value + homography[0][1] * y_value + homography[0][2]) / denominator,
+            "y_px": (homography[1][0] * x_value + homography[1][1] * y_value + homography[1][2]) / denominator,
+        }
+
+    # Start at physical 12h and proceed clockwise in image coordinates.
+    points = [project(center_x + radius * math.sin(index * math.pi / 4), center_y - radius * math.cos(index * math.pi / 4)) for index in range(8)]
+    return points, project(center_x, center_y)
+
+
 class EllipseFitTests(unittest.TestCase):
+    def test_cardinal_projective_center_recovers_physical_center_under_perspective(self):
+        points, physical_center = projective_circle_points(500, 500, 100)
+        fitted = fit_human_calibration_ellipse(points)
+        diagnostic = cardinal_projective_center(points, fitted)
+        self.assertTrue(diagnostic.available)
+        self.assertAlmostEqual(diagnostic.cardinal_center_x_px, physical_center["x_px"], places=5)
+        self.assertAlmostEqual(diagnostic.cardinal_center_y_px, physical_center["y_px"], places=5)
+        self.assertGreater(diagnostic.distance_px, 0.25)
+        # The diagnostic does not replace the existing ellipse authority.
+        self.assertEqual(fitted.bull_center_x_px, fitted.center_x_px)
+        self.assertEqual(fitted.bull_center_y_px, fitted.center_y_px)
+
+    def test_cardinal_projective_center_uses_clock_mapping_not_raw_click_order(self):
+        points, physical_center = projective_circle_points(500, 500, 100)
+        shuffled = [points[index] for index in (3, 7, 1, 5, 0, 4, 2, 6)]
+        diagnostic = cardinal_projective_center(shuffled, fit_human_calibration_ellipse(shuffled))
+        self.assertTrue(diagnostic.available)
+        self.assertAlmostEqual(diagnostic.cardinal_center_x_px, physical_center["x_px"], places=5)
+        self.assertAlmostEqual(diagnostic.cardinal_center_y_px, physical_center["y_px"], places=5)
+        self.assertEqual(diagnostic.vertical_diameter["first"]["clock_label"], "12h")
+        self.assertEqual(diagnostic.vertical_diameter["second"]["clock_label"], "6h")
+        self.assertEqual(diagnostic.horizontal_diameter["first"]["clock_label"], "9h")
+        self.assertEqual(diagnostic.horizontal_diameter["second"]["clock_label"], "3h")
+
+    def test_cardinal_projective_center_marks_parallel_diameters_unavailable(self):
+        points = ellipse_points(100, 100, 50, 30, 0, 8)
+        fitted = fit_human_calibration_ellipse(points)
+        # Supply the same clock mapping with parallel image-space diameter lines.
+        ordered = [
+            (0, (10.0, 10.0)), (1, (30.0, 10.0)), (2, (20.0, 10.0)), (3, (30.0, 30.0)),
+            (4, (10.0, 90.0)), (5, (30.0, 90.0)), (6, (20.0, 90.0)), (7, (30.0, 70.0)),
+        ]
+        with patch("AI_server.benchmark.labeler.ellipse._ellipse_local_angular_order", return_value=ordered):
+            diagnostic = cardinal_projective_center(points, fitted)
+        self.assertFalse(diagnostic.available)
+        self.assertEqual(diagnostic.reason, "near_parallel_diameters")
+
     def test_four_cardinal_anchors_predict_affine_diagonals_without_finalizing_them(self):
         anchors = [{"x_px": 100, "y_px": 40}, {"x_px": 180, "y_px": 100},
                    {"x_px": 100, "y_px": 160}, {"x_px": 20, "y_px": 100}]

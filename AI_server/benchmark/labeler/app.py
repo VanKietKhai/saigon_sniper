@@ -17,7 +17,7 @@ from .manifest import (
     SourceNotFoundError,
     dataset_root_from_environment,
 )
-from .ellipse import (EllipseFitError, calibration_stability, ellipse_point_residuals,
+from .ellipse import (EllipseFitError, calibration_stability, cardinal_projective_center, ellipse_point_residuals,
                       fit_human_calibration_ellipse, fit_human_hole_ellipse,
                       leave_one_out_point_diagnostics, opposite_pair_midpoint_diagnostics,
                       pair_point_recommendations, target_ghost_loo_confidence)
@@ -110,7 +110,8 @@ async def fit_calibration(request: CalibrationFitRequest) -> dict[str, object]:
     points = [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.points]
     midpoint_diagnostics = opposite_pair_midpoint_diagnostics(points, fitted)
     leave_one_out = leave_one_out_point_diagnostics(points, fitted)
-    return {"status": "fitted", "ellipse": fitted.public(), "point_residuals_px": ellipse_point_residuals(points, fitted), "midpoint_diagnostics": midpoint_diagnostics.public(), "leave_one_out_diagnostics": leave_one_out.public(), "pair_point_recommendations": list(pair_point_recommendations(midpoint_diagnostics, leave_one_out)), "ghost_loo_confidence": list(target_ghost_loo_confidence(points, leave_one_out)), "stability": calibration_stability(points, fitted).public()}
+    cardinal_center = cardinal_projective_center(points, fitted)
+    return {"status": "fitted", "ellipse": fitted.public(), "point_residuals_px": ellipse_point_residuals(points, fitted), "midpoint_diagnostics": midpoint_diagnostics.public(), "leave_one_out_diagnostics": leave_one_out.public(), "pair_point_recommendations": list(pair_point_recommendations(midpoint_diagnostics, leave_one_out)), "ghost_loo_confidence": list(target_ghost_loo_confidence(points, leave_one_out)), "stability": calibration_stability(points, fitted).public(), "cardinal_projective_center": cardinal_center.public()}
 
 
 @app.post("/api/hole-ellipse/fit")

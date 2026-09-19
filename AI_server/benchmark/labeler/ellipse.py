@@ -110,6 +110,31 @@ class LeaveOneOutPointDiagnostics:
         return {"points": list(self.points)}
 
 
+@dataclass(frozen=True)
+class CardinalProjectiveCenterDiagnostics:
+    """Diagnostic intersection of the two human-selected cardinal diameters.
+
+    This is deliberately separate from :class:`EllipseFit`. The fitted
+    ellipse center remains the V1 authoritative center for derivation and
+    persistence; this object only helps an operator inspect perspective.
+    """
+
+    available: bool
+    reason: str | None
+    ellipse_center_x_px: float
+    ellipse_center_y_px: float
+    cardinal_center_x_px: float | None
+    cardinal_center_y_px: float | None
+    dx_px: float | None
+    dy_px: float | None
+    distance_px: float | None
+    vertical_diameter: dict[str, object]
+    horizontal_diameter: dict[str, object]
+
+    def public(self) -> dict[str, object]:
+        return asdict(self)
+
+
 def fit_human_calibration_ellipse(
     points: Sequence[Mapping[str, object]],
 ) -> EllipseFit:
@@ -182,6 +207,62 @@ def calibration_stability(
     return CalibrationStability(
         quality, cluster_rms, max_midpoint_spread, center_offset,
         normalized_deviation, midpoints, tuple(pairs),
+    )
+
+
+def cardinal_projective_center(
+    points: Sequence[Mapping[str, object]], ellipse: EllipseFit,
+) -> CardinalProjectiveCenterDiagnostics:
+    """Intersect 12h–6h and 9h–3h image lines as a perspective diagnostic.
+
+    Clock positions come from the existing ellipse-local angular ordering, so
+    raw click order is not authoritative. A projective transform preserves
+    these physical diameter lines and their intersection, but this diagnostic
+    never replaces the fitted ellipse center.
+    """
+    normalized = _validate_points(points, 8, 8, "Target calibration")
+    ordered = _ellipse_local_angular_order(normalized, ellipse)
+    north_index, north = ordered[0]
+    east_index, east = ordered[2]
+    south_index, south = ordered[4]
+    west_index, west = ordered[6]
+    vertical = {
+        "first": _point_diagnostic(north_index, north, "12h"),
+        "second": _point_diagnostic(south_index, south, "6h"),
+    }
+    horizontal = {
+        "first": _point_diagnostic(west_index, west, "9h"),
+        "second": _point_diagnostic(east_index, east, "3h"),
+    }
+    intersection = _line_intersection(north, south, west, east)
+    if intersection is None:
+        return CardinalProjectiveCenterDiagnostics(
+            available=False,
+            reason="near_parallel_diameters",
+            ellipse_center_x_px=ellipse.center_x_px,
+            ellipse_center_y_px=ellipse.center_y_px,
+            cardinal_center_x_px=None,
+            cardinal_center_y_px=None,
+            dx_px=None,
+            dy_px=None,
+            distance_px=None,
+            vertical_diameter=vertical,
+            horizontal_diameter=horizontal,
+        )
+    center_x, center_y = intersection
+    dx, dy = center_x - ellipse.center_x_px, center_y - ellipse.center_y_px
+    return CardinalProjectiveCenterDiagnostics(
+        available=True,
+        reason=None,
+        ellipse_center_x_px=ellipse.center_x_px,
+        ellipse_center_y_px=ellipse.center_y_px,
+        cardinal_center_x_px=center_x,
+        cardinal_center_y_px=center_y,
+        dx_px=dx,
+        dy_px=dy,
+        distance_px=math.hypot(dx, dy),
+        vertical_diameter=vertical,
+        horizontal_diameter=horizontal,
     )
 
 
@@ -305,6 +386,30 @@ def _point_diagnostic(index: int, point: tuple[float, float], clock_label: str) 
         "y_px": point[1],
         "clock_label": clock_label,
     }
+
+
+def _line_intersection(
+    first_start: tuple[float, float], first_end: tuple[float, float],
+    second_start: tuple[float, float], second_end: tuple[float, float],
+) -> tuple[float, float] | None:
+    """Return a finite line intersection or ``None`` for unstable geometry."""
+    x1, y1 = first_start
+    x2, y2 = first_end
+    x3, y3 = second_start
+    x4, y4 = second_end
+    first_dx, first_dy = x1 - x2, y1 - y2
+    second_dx, second_dy = x3 - x4, y3 - y4
+    denominator = first_dx * second_dy - first_dy * second_dx
+    scale = math.hypot(first_dx, first_dy) * math.hypot(second_dx, second_dy)
+    if not math.isfinite(denominator) or scale <= 0 or abs(denominator) <= scale * 1e-9:
+        return None
+    first_cross = x1 * y2 - y1 * x2
+    second_cross = x3 * y4 - y3 * x4
+    x_value = (first_cross * second_dx - first_dx * second_cross) / denominator
+    y_value = (first_cross * second_dy - first_dy * second_cross) / denominator
+    if not (math.isfinite(x_value) and math.isfinite(y_value)):
+        return None
+    return x_value, y_value
 
 
 def _ellipse_local_angular_order(

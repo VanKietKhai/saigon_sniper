@@ -45,6 +45,10 @@ class AnnotationPersistenceTests(unittest.TestCase):
   self.assertEqual(len(payload["leave_one_out_diagnostics"]["points"]),8); self.assertEqual(len(payload["pair_point_recommendations"]),4)
   self.assertEqual({point["clock_label"] for point in payload["leave_one_out_diagnostics"]["points"]},{"12h","1h30","3h","4h30","6h","7h30","9h","10h30"})
   self.assertAlmostEqual(payload["ellipse"]["center_x_px"],100,places=3); self.assertAlmostEqual(payload["ellipse"]["center_y_px"],100,places=3)
+  cardinal=payload["cardinal_projective_center"]
+  self.assertTrue(cardinal["available"])
+  self.assertAlmostEqual(cardinal["ellipse_center_x_px"],payload["ellipse"]["center_x_px"],places=6)
+  self.assertAlmostEqual(cardinal["ellipse_center_y_px"],payload["ellipse"]["center_y_px"],places=6)
  def test_hole_fit_returns_the_same_opposite_pair_diagnostics(self):
   response=self.client.post("/api/hole-ellipse/fit",json={"points":HOLE_POINTS})
   self.assertEqual(response.status_code,200); payload=response.json(); stability=payload["stability"]
