@@ -122,6 +122,18 @@ class EllipseFitTests(unittest.TestCase):
         self.assertAlmostEqual(fitted.center_y_px, 900, places=3)
         self.assertAlmostEqual(fitted.rotation_deg, 135, places=3)
 
+    def test_target_refit_moves_the_authoritative_ellipse_center(self):
+        points = ellipse_points(300, 200, 80, 45, 30, 8)
+        initial = fit_human_calibration_ellipse(points)
+        edited = [point.copy() for point in points]
+        edited[0]["x_px"] += 24
+        edited[0]["y_px"] += 12
+        refitted = fit_human_calibration_ellipse(edited)
+        self.assertNotEqual(
+            (round(initial.center_x_px, 4), round(initial.center_y_px, 4)),
+            (round(refitted.center_x_px, 4), round(refitted.center_y_px, 4)),
+        )
+
     def test_target_calibration_requires_exactly_eight_points(self):
         points = ellipse_points(100, 100, 30, 20, 10, 8)
         self.assertEqual(fit_human_calibration_ellipse(points).point_count, 8)

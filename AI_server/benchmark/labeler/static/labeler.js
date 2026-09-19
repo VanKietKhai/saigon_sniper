@@ -21,7 +21,6 @@ const fitStatus = document.querySelector("#fit-status");
 const fitDetails = document.querySelector("#fit-details");
 const calibrationQuality = document.querySelector("#calibration-quality");
 const targetGuidedStatus = document.querySelector("#target-guided-status");
-const printedCenterStatus = document.querySelector("#printed-center-status");
 const holeCenterStatus = document.querySelector("#hole-center-status");
 const holeStabilityStatus = document.querySelector("#hole-stability-status");
 const derivationStatus = document.querySelector("#derivation-status");
@@ -50,7 +49,6 @@ const controls = {
   fitEllipse: document.querySelector("#fit-ellipse"),
   acceptTargetGhosts: document.querySelector("#target-ghost-accept"),
   redo: document.querySelector("#redo-calibration"),
-  printedCenter: document.querySelector("#printed-center-mode"),
   holeBoundary: document.querySelector("#hole-boundary-mode"),
   undoHole: document.querySelector("#undo-hole-point"),
   clearHole: document.querySelector("#clear-hole-points"),
@@ -117,7 +115,6 @@ const state = {
   fitState: "not_fitted",
   fitError: null,
   calibrationStability: null,
-  printedCenterReference: null,
   calibrationReference: null,
   holeBoundaryPoints: [],
   holeEllipseFit: null,
@@ -200,7 +197,6 @@ function resetImage(message) {
   state.savedAnnotation = null;
   state.targetSnapPreviews = [];
   state.holeSnapPreviews = [];
-  state.printedCenterReference = null;
   state.draggedHandle = null;
   saveStatus.textContent = "Chưa lưu lượt chấm";
   invalidateFit();
@@ -227,17 +223,6 @@ function resizeCanvasBackingStore() {
   canvas.width = Math.max(1, Math.round(size.width * ratio));
   canvas.height = Math.max(1, Math.round(size.height * ratio));
   context.setTransform(ratio, 0, 0, ratio, 0, 0);
-}
-
-function drawReferenceMarker(point) {
-  if (!point) return;
-  const display = transforms.imageToDisplay(point, state.view);
-  context.save();
-  context.strokeStyle = "#ffe66d";
-  context.lineWidth = 2;
-  context.beginPath(); context.arc(display.x, display.y, 7, 0, Math.PI * 2); context.stroke();
-  context.fillStyle = "#ffe66d"; context.font = "12px Arial"; context.fillText("10", display.x + 9, display.y - 9);
-  context.restore();
 }
 
 function stabilitySummary(stability) {
@@ -333,7 +318,6 @@ function render() {
     context.setLineDash([]);
     context.restore();
   }
-  drawReferenceMarker(state.printedCenterReference);
   const holeResiduals = guides.pointResiduals(state.holeBoundaryPoints, state.holeEllipseFit);
   for (const [index, point] of state.holeBoundaryPoints.entries()) {
     const display = transforms.imageToDisplay({ x: point.x_px, y: point.y_px }, state.view);
@@ -350,7 +334,15 @@ function render() {
   }
   if (state.ellipseFit) {
     const display = transforms.imageToDisplay({x_px: state.ellipseFit.center_x_px, y_px: state.ellipseFit.center_y_px}, state.view);
-    context.save(); context.fillStyle = "#ff0000"; context.strokeStyle = "#ffffff"; context.lineWidth = 2; context.beginPath(); context.arc(display.x, display.y, 6, 0, Math.PI * 2); context.fill(); context.stroke(); context.restore();
+    context.save();
+    const drawCenterX = (color, width) => {
+      context.strokeStyle = color; context.lineWidth = width; context.lineCap = "round";
+      context.beginPath(); context.moveTo(display.x - 10, display.y - 10); context.lineTo(display.x + 10, display.y + 10);
+      context.moveTo(display.x + 10, display.y - 10); context.lineTo(display.x - 10, display.y + 10); context.stroke();
+    };
+    drawCenterX("#ffffff", 6);
+    drawCenterX("#d90000", 3);
+    context.restore();
   }
   if (state.holeEllipseFit) {
     const display = transforms.imageToDisplay(
@@ -428,7 +420,6 @@ function updateControls() {
   controls.fitEllipse.disabled = !ready || state.calibrationPoints.length !== 8;
   controls.acceptTargetGhosts.disabled = !ready || state.calibrationPoints.length !== 4;
   controls.redo.disabled = !ready || state.calibrationPoints.length === 0;
-  controls.printedCenter.disabled = !ready || !state.ellipseFit;
   const holeCenterReady = ready && state.ellipseFit !== null;
   controls.holeBoundary.disabled = !holeCenterReady;
   controls.undoHole.disabled = !holeCenterReady || state.holeBoundaryPoints.length === 0;
@@ -439,7 +430,6 @@ function updateControls() {
   controls.save.disabled = !state.derivedResult || !state.ellipseFit || !state.holeEllipseFit || !labelerId.value.trim() || !targetLabelQuality.value || !holeLabelQuality.value || state.savedAnnotation !== null;
   controls.loupe.disabled = !ready || !pixelModeIsActive();
   controls.calibration.setAttribute("aria-pressed", String(state.mode === "calibration"));
-  controls.printedCenter.setAttribute("aria-pressed", String(state.mode === "printed_center"));
   controls.holeBoundary.setAttribute("aria-pressed", String(state.mode === "hole_boundary"));
   controls.loupe.setAttribute("aria-pressed", String(state.loupeEnabled && pixelModeIsActive()));
   calibrationStatus.textContent = ready
@@ -453,9 +443,6 @@ function updateControls() {
   targetGuidedStatus.textContent = state.calibrationPoints.length === 4
     ? "4 điểm chéo mờ và dấu + là gợi ý cục bộ; bấm Áp dụng rồi tinh chỉnh."
     : state.calibrationPoints.length === 8 ? "Đã có 8 điểm cuối cùng; tâm đỏ là tâm ellipse khớp." : "Đặt trước 4 điểm neo: trên, phải, dưới, trái.";
-  printedCenterStatus.textContent = !state.printedCenterReference
-    ? "Chưa đánh dấu (chỉ chẩn đoán)"
-    : "Đã đánh dấu; chỉ dùng để chẩn đoán, không ảnh hưởng điểm";
   holeCenterStatus.textContent = !holeCenterReady
     ? "Vui lòng xác nhận hiệu chuẩn trước khi đánh dấu mép lỗ đạn."
     : state.holeEllipseFit
@@ -583,7 +570,6 @@ function imagePointFromEvent(event) {
 function clearTransientPoints() {
   state.calibrationPoints = [];
   state.targetSnapPreviews = [];
-  state.printedCenterReference = null;
   invalidateFit();
   updateControls();
   render();
@@ -844,10 +830,6 @@ controls.clear.addEventListener("click", () => {
 controls.fitEllipse.addEventListener("click", fitEllipse);
 controls.acceptTargetGhosts.addEventListener("click", () => acceptGhosts("target"));
 controls.redo.addEventListener("click", redoCalibration);
-controls.printedCenter.addEventListener("click", () => {
-  state.mode = state.mode === "printed_center" ? "none" : "printed_center";
-  updateControls(); render();
-});
 controls.holeBoundary.addEventListener("click", () => {
   state.mode = state.mode === "hole_boundary" ? "none" : "hole_boundary";
   updateControls();
@@ -940,12 +922,6 @@ canvas.addEventListener("pointerdown", (event) => {
     return;
   }
   if (beginHandleDrag("target", event, imagePoint) || beginHandleDrag("hole", event, imagePoint)) return;
-  if (state.mode === "printed_center") {
-    state.printedCenterReference = { x_px: imagePoint.x, y_px: imagePoint.y };
-    state.mode = "none";
-    updateControls(); render();
-    return;
-  }
   if (state.mode === "calibration") {
     if (state.calibrationPoints.length >= 8) {
       calibrationStatus.textContent = "Chỉ được chọn tối đa 8 điểm hiệu chuẩn";
