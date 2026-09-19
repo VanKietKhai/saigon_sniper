@@ -17,9 +17,9 @@ from .manifest import (
     SourceNotFoundError,
     dataset_root_from_environment,
 )
-from .ellipse import EllipseFitError, calibration_stability, fit_human_calibration_ellipse, fit_human_hole_ellipse
+from .ellipse import EllipseFitError, calibration_stability, fit_human_calibration_ellipse, fit_human_hole_ellipse, guided_opposite_line_center
 from .derivation import DerivationError, derive_provisional_result, load_frozen_reference
-from .annotations import AnnotationError, DuplicateAnnotationError, append_annotation
+from .annotations import AnnotationError, DuplicateAnnotationError, append_annotation, list_saved_annotations
 
 
 LABELER_ROOT = Path(__file__).resolve().parent
@@ -58,8 +58,12 @@ class AnnotationRequest(BaseModel):
     labeler_id: str
     calibration_points: list[CalibrationPoint]
     hole_boundary_points: list[CalibrationPoint]
-    perspective_status: str
-    label_quality: str
+    perspective_status: str | None = None
+    label_quality: str | None = None
+    target_label_quality: str | None = None
+    hole_label_quality: str | None = None
+    target_center_method: str | None = None
+    hole_center_method: str | None = None
     notes: str = ""
 
 
@@ -101,7 +105,7 @@ async def fit_calibration(request: CalibrationFitRequest) -> dict[str, object]:
             detail={"status": "invalid_calibration_points", "message": str(error)},
         ) from error
     points = [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.points]
-    return {"status": "fitted", "ellipse": fitted.public(), "stability": calibration_stability(points, fitted).public()}
+    return {"status": "fitted", "ellipse": fitted.public(), "stability": calibration_stability(points, fitted).public(), "guided_center": guided_opposite_line_center(points, fitted).public()}
 
 
 @app.post("/api/hole-ellipse/fit")
@@ -120,7 +124,7 @@ async def fit_hole_ellipse(request: CalibrationFitRequest) -> dict[str, object]:
     return {
         "status": "fitted",
         "ellipse": fitted.public(),
-        "stability": calibration_stability(points, fitted, "Hole boundary").public(),
+        "stability": calibration_stability(points, fitted, "Hole boundary").public(), "guided_center": guided_opposite_line_center(points, fitted, "Hole boundary").public(),
     }
 
 
@@ -135,10 +139,11 @@ async def derive_score(request: DeriveRequest) -> dict[str, object]:
         hole_ellipse = fit_human_hole_ellipse(
             [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.hole_boundary_points]
         )
-        result = derive_provisional_result(
-            request.source_id, fitted,
-            {"x_px": hole_ellipse.center_x_px, "y_px": hole_ellipse.center_y_px}, frozen_reference
-        )
+        target_points = [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.calibration_points]
+        hole_points = [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.hole_boundary_points]
+        target_center = guided_opposite_line_center(target_points, fitted)
+        hole_center = guided_opposite_line_center(hole_points, hole_ellipse, "Hole boundary")
+        result = derive_provisional_result(request.source_id, fitted, {"x_px": hole_center.center_x_px, "y_px": hole_center.center_y_px}, frozen_reference, {"x_px": target_center.center_x_px, "y_px": target_center.center_y_px})
     except SourceNotFoundError as error:
         raise HTTPException(
             status_code=404,
@@ -149,7 +154,7 @@ async def derive_score(request: DeriveRequest) -> dict[str, object]:
             status_code=422,
             detail={"status": "invalid_human_geometry", "message": str(error)},
         ) from error
-    return {"status": "derived_provisional", "result": result.public(), "hole_ellipse": hole_ellipse.public()}
+    return {"status": "derived_provisional", "result": result.public(), "hole_ellipse": hole_ellipse.public(), "target_guided_center": target_center.public(), "hole_guided_center": hole_center.public()}
 
 
 @app.post("/api/annotations", status_code=201)
@@ -163,6 +168,12 @@ async def save_annotation(request: AnnotationRequest) -> dict[str, object]:
     except (AnnotationError, SourceNotFoundError, EllipseFitError, DerivationError) as error:
         raise HTTPException(status_code=422, detail={"status": str(error)}) from error
     return {"status": "annotation_appended", **saved}
+
+
+@app.get("/api/annotations/saved")
+async def saved_annotations() -> dict[str, object]:
+    """Read-only completion metadata; never creates or rewrites storage."""
+    return {"items": list_saved_annotations()}
 
 
 @app.get("/", response_class=FileResponse)

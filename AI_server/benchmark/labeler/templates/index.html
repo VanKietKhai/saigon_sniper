@@ -31,6 +31,7 @@
             <div><dt>Trạng thái khớp</dt><dd id="fit-status">Chưa khớp</dd></div>
             <div><dt>Chi tiết khớp</dt><dd id="fit-details">—</dd></div>
             <div><dt>Độ ổn định hiệu chuẩn</dt><dd id="calibration-quality">Chưa khớp</dd></div>
+            <div><dt>Giao tâm bia</dt><dd id="target-guided-status">Chưa hiện 4 đường tâm bia</dd></div>
             <div><dt>Tâm tham chiếu điểm 10</dt><dd id="printed-center-status">Chưa đánh dấu (chỉ chẩn đoán)</dd></div>
             <div><dt>Elip lỗ đạn</dt><dd id="hole-center-status">Vui lòng xác nhận hiệu chuẩn trước khi đánh dấu mép lỗ đạn.</dd></div>
             <div><dt>Độ ổn định mép lỗ</dt><dd id="hole-stability-status">Chưa khớp</dd></div>
@@ -48,22 +49,20 @@
           </div>
           <div class="control-grid" aria-label="Điều khiển khung ảnh">
             <button id="fit-view" type="button" disabled>Vừa khung</button>
-            <button id="one-to-one" type="button" disabled>100%</button>
-            <button id="zoom-in" type="button" disabled>Phóng to</button>
-            <button id="zoom-out" type="button" disabled>Thu nhỏ</button>
-            <button id="pan-mode" type="button" aria-pressed="false" disabled>Di chuyển</button>
             <button id="loupe-toggle" type="button" aria-pressed="false" disabled>Loupe chính xác</button>
             <button id="calibration-mode" type="button" aria-pressed="false" disabled>Hiệu chuẩn</button>
             <button id="undo-point" type="button" disabled>Hoàn tác</button>
             <button id="clear-points" type="button" disabled>Xóa điểm hiệu chuẩn</button>
             <button id="fit-ellipse" type="button" disabled>Khớp elip</button>
-            <button id="accept-calibration" type="button" disabled>Xác nhận hiệu chuẩn</button>
+            <button id="target-guide-toggle" type="button" aria-pressed="false" disabled>Hiện 4 đường tâm bia</button>
+            <button id="accept-calibration" type="button" disabled>Xác nhận tâm bia</button>
             <button id="redo-calibration" type="button" disabled>Làm lại hiệu chuẩn</button>
             <button id="printed-center-mode" type="button" aria-pressed="false" disabled>Đánh dấu tâm tham chiếu điểm 10</button>
             <button id="hole-boundary-mode" type="button" aria-pressed="false" disabled>Đánh dấu mép lỗ đạn</button>
             <button id="undo-hole-point" type="button" disabled>Hoàn tác điểm lỗ</button>
             <button id="clear-hole-points" type="button" disabled>Xóa điểm mép lỗ</button>
             <button id="fit-hole-ellipse" type="button" disabled>Khớp elip lỗ đạn</button>
+            <button id="hole-guide-toggle" type="button" aria-pressed="false" disabled>Hiện 4 đường tâm lỗ</button>
             <button id="accept-hole-ellipse" type="button" disabled>Xác nhận tâm lỗ đạn</button>
             <button id="derive-score" type="button" disabled>Tính điểm tạm tính</button>
           </div>
@@ -79,14 +78,16 @@
           <input id="labeler-id" type="text" maxlength="128" placeholder="LABELER_01">
           <label for="annotation-pass">Lượt chấm</label>
           <select id="annotation-pass"><option value="A">Lượt chấm A</option><option value="B">Lượt chấm B</option></select>
-          <label for="perspective-status">Trạng thái phối cảnh</label>
-          <select id="perspective-status"><option value="circular">Gần tròn / ít méo phối cảnh</option><option value="elliptical_moderate">Elip vừa / phối cảnh chấp nhận được</option><option value="extreme_needs_review">Phối cảnh mạnh — cần xem lại</option><option value="excluded">Loại</option></select>
-          <label for="label-quality">Chất lượng nhãn</label>
-          <select id="label-quality"><option value="good">Tốt</option><option value="usable">Có thể sử dụng</option><option value="ambiguous">Không rõ</option><option value="poor">Kém</option></select>
+          <label for="target-label-quality">Chất lượng nhãn bia</label>
+          <select id="target-label-quality"><option value="">Chọn chất lượng</option><option value="good">Tốt</option><option value="usable">Có thể sử dụng</option><option value="ambiguous">Không rõ</option><option value="poor">Kém</option></select>
+          <label for="hole-label-quality">Chất lượng nhãn lỗ đạn</label>
+          <select id="hole-label-quality"><option value="">Chọn chất lượng</option><option value="good">Tốt</option><option value="usable">Có thể sử dụng</option><option value="ambiguous">Không rõ</option><option value="poor">Kém</option></select>
           <label for="annotation-notes">Ghi chú</label>
           <textarea id="annotation-notes" maxlength="2000"></textarea>
           <p id="save-status">Chưa lưu lượt chấm</p>
           <button id="save-annotation" type="button" disabled>Lưu lượt chấm</button>
+          <button id="view-saved-annotations" type="button">Xem nhãn đã lưu</button>
+          <section id="saved-annotations-panel" hidden aria-live="polite"><p id="saved-annotations-empty">Chưa có nhãn nào được lưu.</p><ul id="saved-annotations-list"></ul></section>
           <button type="button" disabled>Ảnh tiếp theo</button>
         </aside>
       </section>

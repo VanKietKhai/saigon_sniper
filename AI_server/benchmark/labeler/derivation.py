@@ -113,7 +113,8 @@ def _validate_reference(reference: FrozenReference) -> None:
 
 
 def affine_normalized_distance_mm(
-    ellipse: EllipseFit, hole_center: Mapping[str, object], reference: FrozenReference
+    ellipse: EllipseFit, hole_center: Mapping[str, object], reference: FrozenReference,
+    target_center: Mapping[str, object] | None = None,
 ) -> tuple[float, float, float]:
     """Return affine-normalized distance and ellipse-local major/minor scales."""
     hole_x, hole_y = _validated_point(hole_center)
@@ -129,8 +130,9 @@ def affine_normalized_distance_mm(
         raise DerivationError("Ellipse rotation is invalid.")
     angle = math.radians(ellipse.rotation_deg)
     cosine, sine = math.cos(angle), math.sin(angle)
-    delta_x = hole_x - ellipse.center_x_px
-    delta_y = hole_y - ellipse.center_y_px
+    target_x, target_y = _validated_point(target_center) if target_center is not None else (ellipse.center_x_px, ellipse.center_y_px)
+    delta_x = hole_x - target_x
+    delta_y = hole_y - target_y
     local_major_px = cosine * delta_x + sine * delta_y
     local_minor_px = -sine * delta_x + cosine * delta_y
     mm_per_px_major = reference.calibration_radius_mm / ellipse.radius_major_px
@@ -156,17 +158,19 @@ def provisional_score_tenths(distance_mm: float, reference: FrozenReference) -> 
 
 
 def derive_provisional_result(
-    source_id: str, ellipse: EllipseFit, hole_center: Mapping[str, object], reference: FrozenReference
+    source_id: str, ellipse: EllipseFit, hole_center: Mapping[str, object], reference: FrozenReference,
+    target_center: Mapping[str, object] | None = None,
 ) -> DerivationResult:
     distance_mm, mm_per_px_major, mm_per_px_minor = affine_normalized_distance_mm(
-        ellipse, hole_center, reference
+        ellipse, hole_center, reference, target_center
     )
     hole_x, hole_y = _validated_point(hole_center)
+    target_x, target_y = _validated_point(target_center) if target_center is not None else (ellipse.center_x_px, ellipse.center_y_px)
     return DerivationResult(
         source_id=source_id,
         rule_set_id=reference.rule_set_id,
-        target_center_x_px=ellipse.center_x_px,
-        target_center_y_px=ellipse.center_y_px,
+        target_center_x_px=target_x,
+        target_center_y_px=target_y,
         hole_center_x_px=hole_x,
         hole_center_y_px=hole_y,
         radius_major_px=ellipse.radius_major_px,

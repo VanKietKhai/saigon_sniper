@@ -20,6 +20,7 @@ const calibrationReference = document.querySelector("#calibration-reference");
 const fitStatus = document.querySelector("#fit-status");
 const fitDetails = document.querySelector("#fit-details");
 const calibrationQuality = document.querySelector("#calibration-quality");
+const targetGuidedStatus = document.querySelector("#target-guided-status");
 const printedCenterStatus = document.querySelector("#printed-center-status");
 const holeCenterStatus = document.querySelector("#hole-center-status");
 const holeStabilityStatus = document.querySelector("#hole-stability-status");
@@ -30,8 +31,11 @@ const pixelModeStatus = document.querySelector("#pixel-mode-status");
 const cursorStatus = document.querySelector("#cursor-status");
 const labelerId = document.querySelector("#labeler-id");
 const annotationPass = document.querySelector("#annotation-pass");
-const perspectiveStatus = document.querySelector("#perspective-status");
-const labelQuality = document.querySelector("#label-quality");
+const targetLabelQuality = document.querySelector("#target-label-quality");
+const holeLabelQuality = document.querySelector("#hole-label-quality");
+const savedAnnotationsPanel = document.querySelector("#saved-annotations-panel");
+const savedAnnotationsList = document.querySelector("#saved-annotations-list");
+const savedAnnotationsEmpty = document.querySelector("#saved-annotations-empty");
 const annotationNotes = document.querySelector("#annotation-notes");
 const saveStatus = document.querySelector("#save-status");
 const provisionalScoreCard = document.querySelector("#provisional-score-card");
@@ -39,15 +43,12 @@ const provisionalScoreValue = document.querySelector("#provisional-score-value")
 const provisionalScoreSummary = document.querySelector("#provisional-score-summary");
 const controls = {
   fit: document.querySelector("#fit-view"),
-  oneToOne: document.querySelector("#one-to-one"),
-  zoomIn: document.querySelector("#zoom-in"),
-  zoomOut: document.querySelector("#zoom-out"),
-  pan: document.querySelector("#pan-mode"),
   loupe: document.querySelector("#loupe-toggle"),
   calibration: document.querySelector("#calibration-mode"),
   undo: document.querySelector("#undo-point"),
   clear: document.querySelector("#clear-points"),
   fitEllipse: document.querySelector("#fit-ellipse"),
+  targetGuides: document.querySelector("#target-guide-toggle"),
   accept: document.querySelector("#accept-calibration"),
   redo: document.querySelector("#redo-calibration"),
   printedCenter: document.querySelector("#printed-center-mode"),
@@ -55,9 +56,11 @@ const controls = {
   undoHole: document.querySelector("#undo-hole-point"),
   clearHole: document.querySelector("#clear-hole-points"),
   fitHole: document.querySelector("#fit-hole-ellipse"),
+  holeGuides: document.querySelector("#hole-guide-toggle"),
   acceptHole: document.querySelector("#accept-hole-ellipse"),
   derive: document.querySelector("#derive-score"),
   save: document.querySelector("#save-annotation"),
+  viewSaved: document.querySelector("#view-saved-annotations"),
 };
 
 const MIN_SCALE = 0.05;
@@ -116,11 +119,15 @@ const state = {
   fitState: "not_fitted",
   fitError: null,
   calibrationStability: null,
+  targetGuidesVisible: false,
+  targetConfirmedCenter: null,
   printedCenterReference: null,
   calibrationReference: null,
   holeBoundaryPoints: [],
   holeEllipseFit: null,
   holeStability: null,
+  holeGuidesVisible: false,
+  holeConfirmedCenter: null,
   holeFitState: "not_fitted",
   holeCenter: null,
   derivedResult: null,
@@ -152,6 +159,8 @@ function invalidateFit(nextState = "not_fitted") {
   state.fitState = nextState;
   state.fitError = null;
   state.calibrationStability = null;
+  state.targetGuidesVisible = false;
+  state.targetConfirmedCenter = null;
   clearHoleGeometry();
 }
 
@@ -176,10 +185,25 @@ function clearHoleGeometry() {
   state.holeBoundaryPoints = [];
   state.holeEllipseFit = null;
   state.holeStability = null;
+  state.holeGuidesVisible = false;
+  state.holeConfirmedCenter = null;
   state.holeFitState = "not_fitted";
   state.holeCenter = null;
   if (state.mode === "hole_boundary") state.mode = "none";
   invalidateDerived();
+}
+
+function localGuide(kind) {
+  const points = kind === "target" ? state.calibrationPoints : state.holeBoundaryPoints;
+  try { return points.length === 8 ? guides.guideCenter(points) : null; } catch (_) { return null; }
+}
+
+function drawGuides(kind, guide, color) {
+  if (!guide) return;
+  context.save(); context.strokeStyle = color; context.lineWidth = 4; context.lineCap = "round";
+  guide.lines.forEach((line) => { const a = transforms.imageToDisplay(line.first, state.view), b = transforms.imageToDisplay(line.second, state.view); context.beginPath(); context.moveTo(a.x, a.y); context.lineTo(b.x, b.y); context.stroke(); });
+  const center = transforms.imageToDisplay({x: guide.x_px, y: guide.y_px}, state.view);
+  context.strokeStyle = "#ffffff"; context.lineWidth = 2; context.beginPath(); context.arc(center.x, center.y, 6, 0, Math.PI * 2); context.stroke(); context.restore();
 }
 
 function resetImage(message) {
@@ -276,7 +300,6 @@ function render() {
   }
   context.drawImage(state.image, panX, panY,
     state.image.naturalWidth * scale, state.image.naturalHeight * scale);
-  const targetLabels = clockLabelsFromStability(state.calibrationStability);
   for (const [index, point] of state.calibrationPoints.entries()) {
     const display = transforms.imageToDisplay({ x: point.x_px, y: point.y_px }, state.view);
     context.save();
@@ -287,9 +310,6 @@ function render() {
     context.arc(display.x, display.y, 6, 0, Math.PI * 2);
     context.fill();
     context.stroke();
-    context.fillStyle = "#f4f6f4";
-    context.font = "12px Arial";
-    context.fillText(targetLabels.get(index) || `P${index + 1}`, display.x + 8, display.y - 8);
     context.restore();
   }
   if (state.ellipseFit) {
@@ -306,16 +326,8 @@ function render() {
       ellipse.radius_minor_px * state.view.scale, 0, 0, Math.PI * 2);
     context.stroke();
     context.setLineDash([]);
-    context.strokeStyle = "#ff5a7a";
-    context.lineWidth = 2;
-    context.beginPath();
-    context.moveTo(-9, 0);
-    context.lineTo(9, 0);
-    context.moveTo(0, -9);
-    context.lineTo(0, 9);
-    context.stroke();
     context.restore();
-    drawOppositeGuides(state.calibrationStability, "rgba(98, 216, 255, 0.45)", "#ffcc66");
+    if (state.targetGuidesVisible) drawGuides("target", localGuide("target"), "#A020F0");
   }
   drawReferenceMarker(state.printedCenterReference);
   const holeLabels = clockLabelsFromStability(state.holeStability);
@@ -331,21 +343,22 @@ function render() {
     context.save(); context.translate(center.x, center.y); context.rotate((ellipse.rotation_deg * Math.PI) / 180);
     context.strokeStyle = "#74e86f"; context.lineWidth = 2; context.setLineDash([5, 3]); context.beginPath();
     context.ellipse(0, 0, ellipse.radius_major_px * state.view.scale, ellipse.radius_minor_px * state.view.scale, 0, 0, Math.PI * 2); context.stroke(); context.setLineDash([]); context.restore();
-    drawOppositeGuides(state.holeStability, "rgba(116, 232, 111, 0.45)", "#c8ff7a");
-    context.save(); context.strokeStyle = "#ff9d5c"; context.lineWidth = 2; context.beginPath();
-    context.moveTo(center.x - 7, center.y - 7); context.lineTo(center.x + 7, center.y + 7);
-    context.moveTo(center.x + 7, center.y - 7); context.lineTo(center.x - 7, center.y + 7); context.stroke(); context.restore();
+    if (state.holeGuidesVisible) drawGuides("hole", localGuide("hole"), "#c026d3");
   }
-  if (state.holeCenter) {
+  if (state.targetConfirmedCenter) {
+    const display = transforms.imageToDisplay(state.targetConfirmedCenter, state.view);
+    context.save(); context.fillStyle = "#ff0000"; context.strokeStyle = "#ffffff"; context.lineWidth = 2; context.beginPath(); context.arc(display.x, display.y, 6, 0, Math.PI * 2); context.fill(); context.stroke(); context.restore();
+  }
+  if (state.holeConfirmedCenter) {
     const display = transforms.imageToDisplay(
-      { x: state.holeCenter.x_px, y: state.holeCenter.y_px }, state.view,
+      state.holeConfirmedCenter, state.view,
     );
     context.save();
-    context.strokeStyle = "#74e86f";
-    context.fillStyle = "rgba(20, 37, 26, 0.85)";
+    context.strokeStyle = "#ffffff";
+    context.fillStyle = "#41cf67";
     context.lineWidth = 2;
     context.beginPath();
-    context.rect(display.x - 6, display.y - 6, 12, 12);
+    context.arc(display.x, display.y, 6, 0, Math.PI * 2);
     context.fill();
     context.stroke();
     context.beginPath();
@@ -416,19 +429,24 @@ function updateControls() {
   controls.undo.disabled = !ready || state.calibrationPoints.length === 0;
   controls.clear.disabled = !ready || state.calibrationPoints.length === 0;
   controls.fitEllipse.disabled = !ready || state.calibrationPoints.length !== 8;
-  controls.accept.disabled = !ready || state.fitState !== "fitted";
+  const targetGuide = localGuide("target");
+  const holeGuide = localGuide("hole");
+  controls.targetGuides.disabled = !ready || state.calibrationPoints.length !== 8;
+  controls.accept.disabled = !ready || !state.targetGuidesVisible || !targetGuide;
   controls.redo.disabled = !ready || state.calibrationPoints.length === 0;
   controls.printedCenter.disabled = !ready || !state.ellipseFit;
-  const holeCenterReady = ready && state.fitState === "accepted" && state.ellipseFit !== null;
+  const holeCenterReady = ready && state.targetConfirmedCenter !== null;
   controls.holeBoundary.disabled = !holeCenterReady;
   controls.undoHole.disabled = !holeCenterReady || state.holeBoundaryPoints.length === 0;
   controls.clearHole.disabled = !holeCenterReady || state.holeBoundaryPoints.length === 0;
   controls.fitHole.disabled = !holeCenterReady || state.holeBoundaryPoints.length !== 8;
-  controls.acceptHole.disabled = !holeCenterReady || state.holeFitState !== "fitted";
-  controls.derive.disabled = !holeCenterReady || state.holeFitState !== "accepted" || !state.sourceId;
-  controls.save.disabled = !state.derivedResult || state.fitState !== "accepted" || state.holeFitState !== "accepted" || !labelerId.value.trim() || state.savedAnnotation !== null;
+  controls.holeGuides.disabled = !holeCenterReady || state.holeBoundaryPoints.length !== 8;
+  controls.acceptHole.disabled = !holeCenterReady || !state.holeGuidesVisible || !holeGuide;
+  controls.derive.disabled = !holeCenterReady || !state.holeConfirmedCenter || !state.sourceId;
+  controls.save.disabled = !state.derivedResult || !state.targetConfirmedCenter || !state.holeConfirmedCenter || !labelerId.value.trim() || !targetLabelQuality.value || !holeLabelQuality.value || state.savedAnnotation !== null;
   controls.loupe.disabled = !ready || !pixelModeIsActive();
-  controls.pan.setAttribute("aria-pressed", String(state.mode === "pan"));
+  controls.targetGuides.setAttribute("aria-pressed", String(state.targetGuidesVisible));
+  controls.holeGuides.setAttribute("aria-pressed", String(state.holeGuidesVisible));
   controls.calibration.setAttribute("aria-pressed", String(state.mode === "calibration"));
   controls.printedCenter.setAttribute("aria-pressed", String(state.mode === "printed_center"));
   controls.holeBoundary.setAttribute("aria-pressed", String(state.mode === "hole_boundary"));
@@ -441,10 +459,11 @@ function updateControls() {
     ? `Tâm bia ${state.ellipseFit.center_x_px.toFixed(2)}, ${state.ellipseFit.center_y_px.toFixed(2)} px · Bán kính trục lớn ${state.ellipseFit.radius_major_px.toFixed(2)} px · Bán kính trục nhỏ ${state.ellipseFit.radius_minor_px.toFixed(2)} px · Góc xoay ${state.ellipseFit.rotation_deg.toFixed(2)}° · Sai số RMS ${state.ellipseFit.calibration_fit_residual_px.toFixed(3)} px · Sai số lớn nhất ${state.ellipseFit.max_radial_residual_px.toFixed(3)} px · Tỷ lệ trục ${state.ellipseFit.axis_ratio.toFixed(4)} · ${state.ellipseFit.point_count} điểm`
     : state.fitError ? "Không thể khớp elip từ các điểm đã chọn" : "—";
   calibrationQuality.textContent = stabilitySummary(state.calibrationStability);
+  targetGuidedStatus.textContent = state.targetGuidesVisible && targetGuide ? `4 đường tâm bia: ĐANG HIỆN — 4/4 · RMS ${targetGuide.rms_residual_px.toFixed(2)} px` : "Chưa hiện 4 đường tâm bia";
   printedCenterStatus.textContent = !state.printedCenterReference
     ? "Chưa đánh dấu (chỉ chẩn đoán)"
-    : !state.ellipseFit ? "Đã đánh dấu; cần khớp elip để so sánh"
-      : `Lệch tâm fit ${Math.hypot(state.printedCenterReference.x_px - state.ellipseFit.center_x_px, state.printedCenterReference.y_px - state.ellipseFit.center_y_px).toFixed(2)} px · không ảnh hưởng điểm`;
+    : !targetGuide ? "Đã đánh dấu; cần hiện 4 đường tâm bia để so sánh"
+      : `Lệch tâm guide ${Math.hypot(state.printedCenterReference.x_px - targetGuide.x_px, state.printedCenterReference.y_px - targetGuide.y_px).toFixed(2)} px · không ảnh hưởng điểm`;
   holeCenterStatus.textContent = !holeCenterReady
     ? "Vui lòng xác nhận hiệu chuẩn trước khi đánh dấu mép lỗ đạn."
     : state.holeEllipseFit
@@ -470,12 +489,26 @@ async function saveAnnotation() {
   const score = state.derivedResult.provisional_score.toFixed(1);
   if (!window.confirm(`Lưu lượt chấm ${annotationPass.value} cho ${state.sourceId}, người chấm ${labelerId.value.trim()}, điểm tạm tính ${score}?`)) return;
   saveStatus.textContent = "Đang lưu lượt chấm…";
-  const response = await fetch("/api/annotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source_id: state.sourceId, annotation_pass: annotationPass.value, labeler_id: labelerId.value.trim(), calibration_points: state.calibrationPoints, hole_boundary_points: state.holeBoundaryPoints, perspective_status: perspectiveStatus.value, label_quality: labelQuality.value, notes: annotationNotes.value }) });
+  const response = await fetch("/api/annotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source_id: state.sourceId, annotation_pass: annotationPass.value, labeler_id: labelerId.value.trim(), calibration_points: state.calibrationPoints, hole_boundary_points: state.holeBoundaryPoints, target_label_quality: targetLabelQuality.value, hole_label_quality: holeLabelQuality.value, target_center_method: "manual_opposite_line_intersection_v1", hole_center_method: "manual_opposite_line_intersection_v1", notes: annotationNotes.value }) });
   const payload = await response.json();
   if (!response.ok) { saveStatus.textContent = payload.detail?.status === "duplicate_annotation_pass" ? "Lượt chấm này đã tồn tại." : "Không thể lưu lượt chấm."; return; }
   state.savedAnnotation = payload.annotation_id;
   saveStatus.textContent = `Đã lưu lượt chấm. Mã annotation: ${payload.annotation_id}`;
   updateControls();
+}
+
+async function toggleSavedAnnotations() {
+  if (!savedAnnotationsPanel.hidden) { savedAnnotationsPanel.hidden = true; return; }
+  const response = await fetch("/api/annotations/saved");
+  const payload = await response.json();
+  const items = response.ok ? payload.items : [];
+  savedAnnotationsList.replaceChildren(...items.map((item) => {
+    const row = document.createElement("li");
+    row.textContent = `${item.source_id} · Pass ${item.annotation_pass} · ${item.labeler_id} · ${item.saved_at || ""}`;
+    return row;
+  }));
+  savedAnnotationsEmpty.hidden = items.length > 0;
+  savedAnnotationsPanel.hidden = false;
 }
 
 function fitView() {
@@ -568,14 +601,14 @@ function addHoleBoundaryPoint(imagePoint) {
     || imagePoint.x < 0 || imagePoint.y < 0) return;
   if (state.holeBoundaryPoints.length >= 8) { holeCenterStatus.textContent = "Đã đủ 8 điểm mép lỗ đạn; không thể thêm điểm thứ 9."; return; }
   state.holeBoundaryPoints.push({ x_px: imagePoint.x, y_px: imagePoint.y });
-  state.holeEllipseFit = null; state.holeStability = null; state.holeFitState = "not_fitted"; state.holeCenter = null;
+  state.holeEllipseFit = null; state.holeStability = null; state.holeGuidesVisible = false; state.holeConfirmedCenter = null; state.holeFitState = "not_fitted"; state.holeCenter = null;
   invalidateDerived();
   updateControls();
   render();
 }
 
 async function deriveScore() {
-  if (!state.sourceId || state.holeFitState !== "accepted" || !state.ellipseFit || state.fitState !== "accepted") return;
+  if (!state.sourceId || !state.holeConfirmedCenter || !state.targetConfirmedCenter) return;
   invalidateDerived();
   derivationStatus.textContent = "Đang tính điểm tạm tính…";
   try {
@@ -684,13 +717,26 @@ function beginHandleDrag(kind, event, imagePoint) {
   canvas.setPointerCapture(event.pointerId);
   if (kind === "target") {
     const invalidated = guides.invalidatedGeometryState("target");
-    state.fitState = invalidated.fitState; state.savedAnnotation = invalidated.savedAnnotation; invalidateDerived();
+    state.fitState = invalidated.fitState; state.targetConfirmedCenter = null; state.savedAnnotation = invalidated.savedAnnotation; invalidateDerived();
   } else {
     const invalidated = guides.invalidatedGeometryState("hole");
-    state.holeFitState = invalidated.holeFitState; state.holeCenter = null; state.savedAnnotation = invalidated.savedAnnotation; invalidateDerived();
+    state.holeFitState = invalidated.holeFitState; state.holeConfirmedCenter = null; state.holeCenter = null; state.savedAnnotation = invalidated.savedAnnotation; invalidateDerived();
   }
   updateControls(); render();
   return true;
+}
+
+function beginLineDrag(kind, event, imagePoint) {
+  const visible = kind === "target" ? state.targetGuidesVisible : state.holeGuidesVisible;
+  const guide = localGuide(kind);
+  if (!visible || !guide) return false;
+  const lineIndex = guides.nearestGuideLine(guide, imagePoint, 14 / state.view.scale);
+  if (lineIndex < 0) return false;
+  state.draggedLine = { kind, lineIndex, lastImage: imagePoint, pointerId: event.pointerId };
+  canvas.setPointerCapture(event.pointerId);
+  if (kind === "target") state.targetConfirmedCenter = null;
+  else state.holeConfirmedCenter = null;
+  invalidateDerived(); return true;
 }
 
 function updateDraggedHandle(imagePoint) {
@@ -706,6 +752,16 @@ function updateDraggedHandle(imagePoint) {
   invalidateDerived();
   scheduleLiveRefit(kind);
   updateControls(); render();
+}
+
+function updateDraggedLine(imagePoint) {
+  if (!state.draggedLine || !imagePoint) return;
+  const drag = state.draggedLine, guide = localGuide(drag.kind);
+  if (!guide) return;
+  const delta = {x: imagePoint.x - drag.lastImage.x, y: imagePoint.y - drag.lastImage.y};
+  if (drag.kind === "target") { state.calibrationPoints = guides.translatePair(state.calibrationPoints, guide.pairs[drag.lineIndex], delta); state.targetConfirmedCenter = null; state.targetEditRevision += 1; }
+  else { state.holeBoundaryPoints = guides.translatePair(state.holeBoundaryPoints, guide.pairs[drag.lineIndex], delta); state.holeConfirmedCenter = null; state.holeEditRevision += 1; }
+  drag.lastImage = imagePoint; invalidateDerived(); scheduleLiveRefit(drag.kind); updateControls(); render();
 }
 
 function redoCalibration() {
@@ -766,19 +822,6 @@ sourceIdInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") loadSource();
 });
 controls.fit.addEventListener("click", fitView);
-controls.oneToOne.addEventListener("click", setOneToOne);
-controls.zoomIn.addEventListener("click", () => {
-  const size = canvasCssSize();
-  zoomAt({ x: size.width / 2, y: size.height / 2 }, 1.25);
-});
-controls.zoomOut.addEventListener("click", () => {
-  const size = canvasCssSize();
-  zoomAt({ x: size.width / 2, y: size.height / 2 }, 0.8);
-});
-controls.pan.addEventListener("click", () => {
-  state.mode = state.mode === "pan" ? "none" : "pan";
-  updateControls();
-});
 controls.loupe.addEventListener("click", () => {
   state.loupeEnabled = !state.loupeEnabled;
   updateControls();
@@ -799,12 +842,14 @@ controls.clear.addEventListener("click", () => {
 });
 controls.fitEllipse.addEventListener("click", fitEllipse);
 controls.accept.addEventListener("click", () => {
-  if (state.ellipseFit) {
-    state.fitState = "accepted";
+  const guide = localGuide("target");
+  if (guide && state.targetGuidesVisible) {
+    state.targetConfirmedCenter = { x_px: guide.x_px, y_px: guide.y_px };
     updateControls();
   }
 });
 controls.redo.addEventListener("click", redoCalibration);
+controls.targetGuides.addEventListener("click", () => { state.targetGuidesVisible = !state.targetGuidesVisible; updateControls(); render(); });
 controls.printedCenter.addEventListener("click", () => {
   state.mode = state.mode === "printed_center" ? "none" : "printed_center";
   updateControls(); render();
@@ -825,12 +870,17 @@ controls.clearHole.addEventListener("click", () => {
   }
 });
 controls.fitHole.addEventListener("click", fitHoleEllipse);
+controls.holeGuides.addEventListener("click", () => { state.holeGuidesVisible = !state.holeGuidesVisible; updateControls(); render(); });
 controls.acceptHole.addEventListener("click", () => {
-  if (state.holeEllipseFit) { state.holeFitState = "accepted"; state.holeCenter = { x_px: state.holeEllipseFit.center_x_px, y_px: state.holeEllipseFit.center_y_px }; updateControls(); render(); }
+  const guide = localGuide("hole");
+  if (guide && state.holeGuidesVisible) { state.holeFitState = "accepted"; state.holeConfirmedCenter = { x_px: guide.x_px, y_px: guide.y_px }; updateControls(); render(); }
 });
 controls.derive.addEventListener("click", deriveScore);
 controls.save.addEventListener("click", () => { saveAnnotation().catch(() => { saveStatus.textContent = "Không thể lưu lượt chấm."; }); });
+controls.viewSaved.addEventListener("click", () => { toggleSavedAnnotations().catch(() => { savedAnnotationsEmpty.textContent = "Không thể đọc nhãn đã lưu."; savedAnnotationsPanel.hidden = false; }); });
 labelerId.addEventListener("input", updateControls);
+targetLabelQuality.addEventListener("change", updateControls);
+holeLabelQuality.addEventListener("change", updateControls);
 window.addEventListener("keydown", (event) => {
   if (!state.verifiedAndDecoded || focusedElementAcceptsText()) return;
   if (event.code === "Space") {
@@ -859,6 +909,10 @@ canvas.addEventListener("pointermove", (event) => {
   if (state.draggedHandle?.pointerId === event.pointerId) {
     const imagePoint = imagePointFromEvent(event);
     if (imagePoint) updateDraggedHandle(imagePoint);
+  }
+  if (state.draggedLine?.pointerId === event.pointerId) {
+    const imagePoint = imagePointFromEvent(event);
+    if (imagePoint) updateDraggedLine(imagePoint);
   }
   if (state.panStart) {
     const point = displayPointFromEvent(event);
@@ -898,7 +952,7 @@ canvas.addEventListener("pointerdown", (event) => {
     else if (state.mode === "hole_boundary") holeCenterStatus.textContent = "Con trỏ nằm ngoài vùng ảnh: chưa thêm điểm mép lỗ đạn";
     return;
   }
-  if (beginHandleDrag("target", event, imagePoint) || beginHandleDrag("hole", event, imagePoint)) return;
+  if (beginHandleDrag("target", event, imagePoint) || beginHandleDrag("hole", event, imagePoint) || beginLineDrag("target", event, imagePoint) || beginLineDrag("hole", event, imagePoint)) return;
   if (state.mode === "printed_center") {
     state.printedCenterReference = { x_px: imagePoint.x, y_px: imagePoint.y };
     state.mode = "none";
@@ -920,8 +974,9 @@ canvas.addEventListener("pointerdown", (event) => {
   }
 });
 canvas.addEventListener("pointerup", (event) => {
-  if (state.draggedHandle?.pointerId === event.pointerId) {
+  if (state.draggedHandle?.pointerId === event.pointerId || state.draggedLine?.pointerId === event.pointerId) {
     state.draggedHandle = null;
+    state.draggedLine = null;
     if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
     updateControls(); render();
     return;
@@ -932,8 +987,9 @@ canvas.addEventListener("pointerup", (event) => {
   updateControls();
 });
 canvas.addEventListener("pointercancel", (event) => {
-  if (state.draggedHandle?.pointerId === event.pointerId) {
+  if (state.draggedHandle?.pointerId === event.pointerId || state.draggedLine?.pointerId === event.pointerId) {
     state.draggedHandle = null;
+    state.draggedLine = null;
     if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
     updateControls(); render();
     return;

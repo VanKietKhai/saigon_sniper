@@ -68,6 +68,18 @@ class HoleEllipseFit:
 
 
 @dataclass(frozen=True)
+class GuidedCenter:
+    center_x_px: float
+    center_y_px: float
+    rms_residual_px: float
+    max_residual_px: float
+    line_pairs: tuple[dict[str, int], ...]
+
+    def public(self) -> dict[str, object]:
+        return {**asdict(self), "line_pairs": list(self.line_pairs)}
+
+
+@dataclass(frozen=True)
 class CalibrationStability:
     """Transient balance diagnostic for eight points ordered around an ellipse."""
 
@@ -143,6 +155,36 @@ def calibration_stability(
         quality, cluster_rms, max_midpoint_spread, center_offset,
         normalized_deviation, midpoints, tuple(pairs),
     )
+
+
+def guided_opposite_line_center(
+    points: Sequence[Mapping[str, object]], ellipse: EllipseFit | HoleEllipseFit,
+    label: str = "Guided boundary",
+) -> GuidedCenter:
+    """Derive a least-squares intersection from four real opposite-point lines."""
+    normalized = _validate_points(points, 8, 8, label)
+    ordered = _ellipse_local_angular_order(normalized, ellipse)
+    pairs = tuple({"first_point_index": ordered[index][0], "second_point_index": ordered[index + 4][0]} for index in range(4))
+    matrix = np.zeros((2, 2), dtype=np.float64)
+    vector = np.zeros(2, dtype=np.float64)
+    lines: list[tuple[np.ndarray, float]] = []
+    for pair in pairs:
+        first = normalized[pair["first_point_index"]]
+        second = normalized[pair["second_point_index"]]
+        direction = np.asarray((second[0] - first[0], second[1] - first[1]), dtype=np.float64)
+        length = float(np.linalg.norm(direction))
+        if length <= 1e-9:
+            raise EllipseFitError(f"{label} has a zero-length opposite line.")
+        normal = np.asarray((-direction[1] / length, direction[0] / length))
+        constant = float(normal @ np.asarray(first))
+        matrix += np.outer(normal, normal)
+        vector += normal * constant
+        lines.append((normal, constant))
+    if np.linalg.matrix_rank(matrix) < 2:
+        raise EllipseFitError(f"{label} opposite lines cannot define a center.")
+    center = np.linalg.solve(matrix, vector)
+    residuals = [abs(float(normal @ center - constant)) for normal, constant in lines]
+    return GuidedCenter(float(center[0]), float(center[1]), math.sqrt(sum(value * value for value in residuals) / 4), max(residuals), pairs)
 
 
 def _point_diagnostic(index: int, point: tuple[float, float], clock_label: str) -> dict[str, object]:
