@@ -17,12 +17,12 @@ from .manifest import (
     SourceNotFoundError,
     dataset_root_from_environment,
 )
-from .ellipse import (EllipseFitError, calibration_stability, cardinal_projective_center, ellipse_point_residuals,
+from .ellipse import (EllipseFitError, calibration_stability, ellipse_point_residuals,
                       fit_human_calibration_ellipse, fit_human_hole_ellipse,
                       leave_one_out_point_diagnostics, opposite_pair_midpoint_diagnostics,
-                      pair_point_recommendations, target_ghost_loo_confidence)
+                      pair_point_recommendations, require_cardinal_projective_center, require_hole_cardinal_center)
 from .derivation import DerivationError, derive_provisional_result, load_frozen_reference
-from .annotations import AnnotationError, DuplicateAnnotationError, append_annotation, list_saved_annotations
+from .annotations import AnnotationError, DuplicateAnnotationError, append_annotation, list_saved_annotations, saved_annotation
 
 
 LABELER_ROOT = Path(__file__).resolve().parent
@@ -43,9 +43,14 @@ app.mount(
 class CalibrationPoint(BaseModel):
     x_px: float
     y_px: float
+    semantic_role: str | None = None
 
 
 class CalibrationFitRequest(BaseModel):
+    points: list[CalibrationPoint]
+
+
+class TargetCenterRequest(BaseModel):
     points: list[CalibrationPoint]
 
 
@@ -95,23 +100,28 @@ async def calibration_reference() -> dict[str, object]:
     }
 
 
+@app.post("/api/target-center")
+async def target_center(request: TargetCenterRequest) -> dict[str, object]:
+    """Recompute the authoritative target center from four semantic anchors."""
+    points = [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.points]
+    if len(points) != 4:
+        raise HTTPException(status_code=422, detail={"status": "exactly_four_semantic_target_anchors_are_required"})
+    try:
+        center = require_cardinal_projective_center(points)
+    except EllipseFitError as error:
+        raise HTTPException(status_code=422, detail={"status": "invalid_cardinal_target_geometry", "message": str(error)}) from error
+    return {"status": "target_center_determined", "target_center_method": "cardinal_diameter_intersection_v1", "cardinal_projective_center": center.public()}
+
+
 @app.post("/api/calibration/fit")
 async def fit_calibration(request: CalibrationFitRequest) -> dict[str, object]:
-    """Fit an ellipse only to the browser-supplied human point geometry."""
-    try:
-        fitted = fit_human_calibration_ellipse(
-            [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.points]
-        )
-    except EllipseFitError as error:
-        raise HTTPException(
-            status_code=422,
-            detail={"status": "invalid_calibration_points", "message": str(error)},
-        ) from error
+    """Fit the optional eight-point target boundary; never determine its center."""
     points = [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.points]
-    midpoint_diagnostics = opposite_pair_midpoint_diagnostics(points, fitted)
-    leave_one_out = leave_one_out_point_diagnostics(points, fitted)
-    cardinal_center = cardinal_projective_center(points, fitted)
-    return {"status": "fitted", "ellipse": fitted.public(), "point_residuals_px": ellipse_point_residuals(points, fitted), "midpoint_diagnostics": midpoint_diagnostics.public(), "leave_one_out_diagnostics": leave_one_out.public(), "pair_point_recommendations": list(pair_point_recommendations(midpoint_diagnostics, leave_one_out)), "ghost_loo_confidence": list(target_ghost_loo_confidence(points, leave_one_out)), "stability": calibration_stability(points, fitted).public(), "cardinal_projective_center": cardinal_center.public()}
+    try:
+        fitted = fit_human_calibration_ellipse(points)
+    except EllipseFitError as error:
+        raise HTTPException(status_code=422, detail={"status": "invalid_calibration_points", "message": str(error)}) from error
+    return {"status": "fitted", "ellipse": fitted.public(), "point_residuals_px": ellipse_point_residuals(points, fitted)}
 
 
 @app.post("/api/hole-ellipse/fit")
@@ -136,31 +146,30 @@ async def fit_hole_ellipse(request: CalibrationFitRequest) -> dict[str, object]:
     }
 
 
+@app.post("/api/hole-center")
+async def hole_center(request: TargetCenterRequest) -> dict[str, object]:
+    points = [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.points]
+    if len(points) != 4: raise HTTPException(status_code=422, detail={"status": "exactly_four_semantic_hole_anchors_are_required"})
+    try: center = require_hole_cardinal_center(points)
+    except EllipseFitError as error: raise HTTPException(status_code=422, detail={"status": "invalid_hole_cardinal_geometry", "message": str(error)}) from error
+    return {"status": "hole_center_determined", "hole_center_method": "cardinal_diameter_intersection_v1", "hole_cardinal_center": center.public()}
+
+
 @app.post("/api/derive")
 async def derive_score(request: DeriveRequest) -> dict[str, object]:
-    """Derive a provisional score only from submitted human geometry."""
+    """Preview only: use target ellipse scale and the authoritative cardinal center."""
+    points = [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.calibration_points]
+    holes = [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.hole_boundary_points]
     try:
         source_manifest.record_for(request.source_id)
-        fitted = fit_human_calibration_ellipse(
-            [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.calibration_points]
-        )
-        hole_ellipse = fit_human_hole_ellipse(
-            [point.model_dump() if hasattr(point, "model_dump") else point.dict() for point in request.hole_boundary_points]
-        )
-        target_center = {"x_px": fitted.center_x_px, "y_px": fitted.center_y_px}
-        hole_center = {"x_px": hole_ellipse.center_x_px, "y_px": hole_ellipse.center_y_px}
-        result = derive_provisional_result(request.source_id, fitted, hole_center, frozen_reference, target_center)
-    except SourceNotFoundError as error:
-        raise HTTPException(
-            status_code=404,
-            detail={"status": "source_not_found", "source_id": request.source_id},
-        ) from error
-    except (EllipseFitError, DerivationError) as error:
-        raise HTTPException(
-            status_code=422,
-            detail={"status": "invalid_human_geometry", "message": str(error)},
-        ) from error
-    return {"status": "derived_provisional", "result": result.public(), "hole_ellipse": hole_ellipse.public()}
+        fitted = fit_human_calibration_ellipse(points)
+        cardinal = require_cardinal_projective_center(points, fitted)
+        hole = fit_human_hole_ellipse(holes)
+        hole_cardinal = require_hole_cardinal_center(holes[:4], hole)
+        result = derive_provisional_result(request.source_id, fitted, {"x_px": hole_cardinal.cardinal_center_x_px, "y_px": hole_cardinal.cardinal_center_y_px}, frozen_reference, {"x_px": cardinal.cardinal_center_x_px, "y_px": cardinal.cardinal_center_y_px})
+    except (SourceNotFoundError, EllipseFitError, DerivationError) as error:
+        raise HTTPException(status_code=422, detail={"status": "invalid_human_geometry", "message": str(error)}) from error
+    return {"status": "derived_provisional", "result": result.public(), "hole_ellipse": hole.public(), "target_center_method": "cardinal_diameter_intersection_v1"}
 
 
 @app.post("/api/annotations", status_code=201)
@@ -180,6 +189,14 @@ async def save_annotation(request: AnnotationRequest) -> dict[str, object]:
 async def saved_annotations() -> dict[str, object]:
     """Read-only completion metadata; never creates or rewrites storage."""
     return {"items": list_saved_annotations()}
+
+
+@app.get("/api/annotations/{annotation_id}")
+async def read_saved_annotation(annotation_id: str) -> dict[str, object]:
+    try:
+        return {"annotation": saved_annotation(annotation_id)}
+    except AnnotationError as error:
+        raise HTTPException(status_code=404, detail={"status": str(error)}) from error
 
 
 @app.get("/", response_class=FileResponse)

@@ -12,6 +12,8 @@ import numpy as np
 
 MIN_CALIBRATION_POINTS = 8
 MAX_CALIBRATION_POINTS = 8
+SEMANTIC_CARDINAL_ROLES = ("12h", "3h", "6h", "9h")
+HOLE_SEMANTIC_CARDINAL_ROLES = ("hole_12h", "hole_3h", "hole_6h", "hole_9h")
 
 
 class EllipseFitError(ValueError):
@@ -112,17 +114,12 @@ class LeaveOneOutPointDiagnostics:
 
 @dataclass(frozen=True)
 class CardinalProjectiveCenterDiagnostics:
-    """Diagnostic intersection of the two human-selected cardinal diameters.
-
-    This is deliberately separate from :class:`EllipseFit`. The fitted
-    ellipse center remains the V1 authoritative center for derivation and
-    persistence; this object only helps an operator inspect perspective.
-    """
+    """Server-derived intersection of the two semantically identified diameters."""
 
     available: bool
     reason: str | None
-    ellipse_center_x_px: float
-    ellipse_center_y_px: float
+    ellipse_center_x_px: float | None
+    ellipse_center_y_px: float | None
     cardinal_center_x_px: float | None
     cardinal_center_y_px: float | None
     dx_px: float | None
@@ -211,59 +208,125 @@ def calibration_stability(
 
 
 def cardinal_projective_center(
-    points: Sequence[Mapping[str, object]], ellipse: EllipseFit,
+    points: Sequence[Mapping[str, object]], ellipse: EllipseFit | None = None,
 ) -> CardinalProjectiveCenterDiagnostics:
-    """Intersect 12h–6h and 9h–3h image lines as a perspective diagnostic.
+    """Intersect semantic 12h–6h and 9h–3h diameters without reordering.
 
-    Clock positions come from the existing ellipse-local angular ordering, so
-    raw click order is not authoritative. A projective transform preserves
-    these physical diameter lines and their intersection, but this diagnostic
-    never replaces the fitted ellipse center.
+    The four anchors carry their physical identity in ``semantic_role``.
+    Their raw click position, fitted-ellipse angular order, and any ellipse
+    center are intentionally not used to infer that identity.
     """
-    normalized = _validate_points(points, 8, 8, "Target calibration")
-    ordered = _ellipse_local_angular_order(normalized, ellipse)
-    north_index, north = ordered[0]
-    east_index, east = ordered[2]
-    south_index, south = ordered[4]
-    west_index, west = ordered[6]
+    try:
+        anchors = _semantic_cardinal_anchors(points)
+    except EllipseFitError as error:
+        return _unavailable_cardinal_center(ellipse, str(error))
+    north, east, south, west = (anchors[role] for role in SEMANTIC_CARDINAL_ROLES)
     vertical = {
-        "first": _point_diagnostic(north_index, north, "12h"),
-        "second": _point_diagnostic(south_index, south, "6h"),
+        "first": _point_diagnostic(0, north, "12h"),
+        "second": _point_diagnostic(2, south, "6h"),
     }
     horizontal = {
-        "first": _point_diagnostic(west_index, west, "9h"),
-        "second": _point_diagnostic(east_index, east, "3h"),
+        "first": _point_diagnostic(3, west, "9h"),
+        "second": _point_diagnostic(1, east, "3h"),
     }
     intersection = _line_intersection(north, south, west, east)
     if intersection is None:
-        return CardinalProjectiveCenterDiagnostics(
-            available=False,
-            reason="near_parallel_diameters",
-            ellipse_center_x_px=ellipse.center_x_px,
-            ellipse_center_y_px=ellipse.center_y_px,
-            cardinal_center_x_px=None,
-            cardinal_center_y_px=None,
-            dx_px=None,
-            dy_px=None,
-            distance_px=None,
-            vertical_diameter=vertical,
-            horizontal_diameter=horizontal,
-        )
+        return _unavailable_cardinal_center(ellipse, "near_parallel_diameters", vertical, horizontal)
     center_x, center_y = intersection
-    dx, dy = center_x - ellipse.center_x_px, center_y - ellipse.center_y_px
+    if ellipse is not None:
+        normalized_radius = _normalized_ellipse_radius(center_x, center_y, ellipse)
+        if not math.isfinite(normalized_radius) or normalized_radius > 1.25:
+            return _unavailable_cardinal_center(ellipse, "intersection_outside_plausible_target_region", vertical, horizontal)
+    dx = center_x - ellipse.center_x_px if ellipse is not None else None
+    dy = center_y - ellipse.center_y_px if ellipse is not None else None
     return CardinalProjectiveCenterDiagnostics(
         available=True,
         reason=None,
-        ellipse_center_x_px=ellipse.center_x_px,
-        ellipse_center_y_px=ellipse.center_y_px,
+        ellipse_center_x_px=ellipse.center_x_px if ellipse is not None else None,
+        ellipse_center_y_px=ellipse.center_y_px if ellipse is not None else None,
         cardinal_center_x_px=center_x,
         cardinal_center_y_px=center_y,
         dx_px=dx,
         dy_px=dy,
-        distance_px=math.hypot(dx, dy),
+        distance_px=math.hypot(dx, dy) if dx is not None and dy is not None else None,
         vertical_diameter=vertical,
         horizontal_diameter=horizontal,
     )
+
+
+def require_cardinal_projective_center(
+    points: Sequence[Mapping[str, object]], ellipse: EllipseFit | None = None,
+) -> CardinalProjectiveCenterDiagnostics:
+    """Return the authoritative center or reject invalid semantic geometry."""
+    diagnostic = cardinal_projective_center(points, ellipse)
+    if not diagnostic.available:
+        raise EllipseFitError(f"cardinal_target_center_unavailable:{diagnostic.reason}")
+    return diagnostic
+
+
+def hole_cardinal_center(
+    points: Sequence[Mapping[str, object]], ellipse: HoleEllipseFit | None = None,
+) -> CardinalProjectiveCenterDiagnostics:
+    """Authoritative hole center from explicit hole cardinal anchors."""
+    remapped = []
+    mapping = dict(zip(HOLE_SEMANTIC_CARDINAL_ROLES, SEMANTIC_CARDINAL_ROLES))
+    for point in points:
+        role = point.get("semantic_role")
+        remapped.append({**point, "semantic_role": mapping.get(role, role)})
+    return cardinal_projective_center(remapped, ellipse)
+
+
+def require_hole_cardinal_center(
+    points: Sequence[Mapping[str, object]], ellipse: HoleEllipseFit | None = None,
+) -> CardinalProjectiveCenterDiagnostics:
+    diagnostic = hole_cardinal_center(points, ellipse)
+    if not diagnostic.available:
+        raise EllipseFitError(f"hole_cardinal_center_unavailable:{diagnostic.reason}")
+    return diagnostic
+
+
+def _semantic_cardinal_anchors(points: Sequence[Mapping[str, object]]) -> dict[str, tuple[float, float]]:
+    anchors: dict[str, tuple[float, float]] = {}
+    for raw in points:
+        role = raw.get("semantic_role")
+        if role not in SEMANTIC_CARDINAL_ROLES:
+            continue
+        if role in anchors:
+            raise EllipseFitError(f"duplicate_semantic_cardinal_anchor:{role}")
+        try:
+            x, y = float(raw["x_px"]), float(raw["y_px"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise EllipseFitError(f"invalid_semantic_cardinal_anchor:{role}") from error
+        if not math.isfinite(x) or not math.isfinite(y):
+            raise EllipseFitError(f"invalid_semantic_cardinal_anchor:{role}")
+        anchors[role] = (x, y)
+    missing = [role for role in SEMANTIC_CARDINAL_ROLES if role not in anchors]
+    if missing:
+        raise EllipseFitError(f"missing_semantic_cardinal_anchors:{','.join(missing)}")
+    return anchors
+
+
+def _unavailable_cardinal_center(
+    ellipse: EllipseFit | None, reason: str,
+    vertical: dict[str, object] | None = None,
+    horizontal: dict[str, object] | None = None,
+) -> CardinalProjectiveCenterDiagnostics:
+    return CardinalProjectiveCenterDiagnostics(
+        available=False, reason=reason,
+        ellipse_center_x_px=ellipse.center_x_px if ellipse is not None else None,
+        ellipse_center_y_px=ellipse.center_y_px if ellipse is not None else None,
+        cardinal_center_x_px=None, cardinal_center_y_px=None,
+        dx_px=None, dy_px=None, distance_px=None,
+        vertical_diameter=vertical or {}, horizontal_diameter=horizontal or {},
+    )
+
+
+def _normalized_ellipse_radius(x: float, y: float, ellipse: EllipseFit) -> float:
+    angle = math.radians(ellipse.rotation_deg)
+    dx, dy = x - ellipse.center_x_px, y - ellipse.center_y_px
+    local_x = math.cos(angle) * dx + math.sin(angle) * dy
+    local_y = -math.sin(angle) * dx + math.cos(angle) * dy
+    return math.hypot(local_x / ellipse.radius_major_px, local_y / ellipse.radius_minor_px)
 
 
 def opposite_pair_midpoint_diagnostics(

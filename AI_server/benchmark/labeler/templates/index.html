@@ -23,22 +23,12 @@
         <aside class="annotation-panel">
           <dl>
             <div><dt>Thư mục dữ liệu</dt><dd id="dataset-configured">Đang kiểm tra...</dd></div>
-            <div><dt>Số bản ghi manifest</dt><dd id="manifest-record-count">Đang kiểm tra...</dd></div>
             <div><dt>Mã ảnh</dt><dd id="source-id-status">Chưa mở</dd></div>
             <div><dt>Ảnh</dt><dd id="image-details">Chưa mở</dd></div>
             <div><dt>Điểm hiệu chuẩn</dt><dd id="calibration-status">Chưa kích hoạt</dd></div>
-            <div><dt>Chuẩn hiệu chuẩn</dt><dd id="calibration-reference">Đang tải quy tắc cố định…</dd></div>
-            <div><dt>Trạng thái khớp</dt><dd id="fit-status">Chưa khớp</dd></div>
-            <div><dt>Chi tiết khớp</dt><dd id="fit-details">—</dd></div>
-            <div><dt>So sánh tâm</dt><dd id="center-comparison">Chưa khớp</dd></div>
-            <div><dt>Độ ổn định hiệu chuẩn</dt><dd id="calibration-quality">Chưa khớp</dd></div>
-            <div><dt>Gợi ý điểm chéo bia</dt><dd id="target-guided-status">Đặt trước 4 điểm neo: trên, phải, dưới, trái.</dd></div>
-            <div><dt>Kiểm tra cân đối điểm bia</dt><dd id="target-midpoint-diagnostics">Chưa khớp</dd></div>
-            <div><dt>Elip lỗ đạn</dt><dd id="hole-center-status">Khớp 8 điểm mép lỗ để tạo tâm ellipse.</dd></div>
-            <div><dt>Độ ổn định mép lỗ</dt><dd id="hole-stability-status">Chưa khớp</dd></div>
-            <div><dt>Kiểm tra cân đối điểm lỗ đạn</dt><dd id="hole-midpoint-diagnostics">Chưa khớp</dd></div>
-            <div><dt>Kết quả tạm tính</dt><dd id="derivation-status">Chưa tính</dd></div>
-            <div><dt>Chi tiết kết quả</dt><dd id="derivation-details">—</dd></div>
+            <div><dt>Tâm bia chính thức</dt><dd id="center-comparison">Chưa khớp</dd></div>
+            <div><dt>Chi tiết kết quả</dt><dd id="derivation-details" class="score-details">Chưa tính</dd></div>
+            <div><dt>Tâm lỗ đạn</dt><dd id="hole-center-status">Đặt bốn điểm theo thứ tự 12h, 3h, 6h, 9h.</dd></div>
             <div><dt>Trạng thái xác minh</dt><dd id="identity-status">Chưa kiểm tra</dd></div>
             <div><dt>Mức phóng</dt><dd id="zoom-status">—</dd></div>
             <div><dt>Chế độ pixel</dt><dd id="pixel-mode-status">—</dd></div>
@@ -55,8 +45,8 @@
             <button id="calibration-mode" type="button" aria-pressed="false" disabled>Hiệu chuẩn</button>
             <button id="undo-point" type="button" disabled>Hoàn tác</button>
             <button id="clear-points" type="button" disabled>Xóa điểm hiệu chuẩn</button>
+            <button id="target-ghost-accept" type="button" disabled>Áp dụng 4 điểm chéo gần đúng</button>
             <button id="fit-ellipse" type="button" disabled>Khớp elip</button>
-            <button id="target-ghost-accept" type="button" disabled>Áp dụng 4 điểm chéo gợi ý</button>
             <button id="redo-calibration" type="button" disabled>Làm lại hiệu chuẩn</button>
             <button id="hole-boundary-mode" type="button" aria-pressed="false" disabled>Đánh dấu mép lỗ đạn</button>
             <button id="undo-hole-point" type="button" disabled>Hoàn tác điểm lỗ</button>
@@ -65,24 +55,22 @@
             <button id="hole-ghost-accept" type="button" disabled>Áp dụng 4 điểm chéo gợi ý lỗ</button>
             <button id="derive-score" type="button" disabled>Tính điểm tạm tính</button>
           </div>
-          <p class="control-help">Đặt 4 điểm neo theo thứ tự trên, phải, dưới, trái. Bốn điểm chéo mờ chỉ là gợi ý cục bộ: bấm áp dụng rồi kéo tinh chỉnh từng điểm trên đúng biên. Chọn đúng đường biên in ngoài của vòng 1 — không chọn mép tờ bia hoặc vùng đen 30,5 mm.</p>
-          <p class="control-help">W/A/S/D hoặc phím mũi tên: di chuyển ảnh. Giữ Shift để đi nhanh, Alt để tinh chỉnh. Giữ Space và kéo chuột trái để di chuyển tạm thời mà không đổi chế độ chấm.</p>
-          <p class="provisional-notice">TẠM TÍNH — CHƯA LƯU DỮ LIỆU GROUND TRUTH</p>
-          <section id="provisional-score-card" class="provisional-score-card" aria-live="polite">
-            <p>ĐIỂM GROUND TRUTH TẠM TÍNH</p>
-            <strong id="provisional-score-value">—</strong>
-            <span id="provisional-score-summary">Cần tính điểm tạm tính trước khi lưu.</span>
-          </section>
-          <label for="labeler-id">Mã người chấm</label>
-          <input id="labeler-id" type="text" maxlength="128" placeholder="LABELER_01">
-          <label for="annotation-pass">Lượt chấm</label>
-          <select id="annotation-pass"><option value="A">Lượt chấm A</option><option value="B">Lượt chấm B</option></select>
-          <label for="target-label-quality">Chất lượng nhãn bia</label>
-          <select id="target-label-quality"><option value="">Chọn chất lượng</option><option value="good">Tốt</option><option value="usable">Có thể sử dụng</option><option value="ambiguous">Không rõ</option><option value="poor">Kém</option></select>
-          <label for="hole-label-quality">Chất lượng nhãn lỗ đạn</label>
-          <select id="hole-label-quality"><option value="">Chọn chất lượng</option><option value="good">Tốt</option><option value="usable">Có thể sử dụng</option><option value="ambiguous">Không rõ</option><option value="poor">Kém</option></select>
-          <label for="annotation-notes">Ghi chú</label>
-          <textarea id="annotation-notes" maxlength="2000"></textarea>
+          <div class="form-field">
+            <label for="labeler-id">Mã người chấm</label>
+            <input id="labeler-id" type="text" maxlength="128" placeholder="LABELER_01">
+          </div>
+          <div class="form-field">
+            <label for="annotation-pass">Lượt chấm</label>
+            <select id="annotation-pass"><option value="A">Lượt chấm A</option><option value="B">Lượt chấm B</option></select>
+          </div>
+          <div class="form-field">
+            <label for="target-label-quality">Chất lượng nhãn bia</label>
+            <select id="target-label-quality"><option value="">Chọn chất lượng</option><option value="good">Tốt</option><option value="usable">Có thể sử dụng</option><option value="ambiguous">Không rõ</option><option value="poor">Kém</option></select>
+          </div>
+          <div class="form-field">
+            <label for="hole-label-quality">Chất lượng nhãn lỗ đạn</label>
+            <select id="hole-label-quality"><option value="">Chọn chất lượng</option><option value="good">Tốt</option><option value="usable">Có thể sử dụng</option><option value="ambiguous">Không rõ</option><option value="poor">Kém</option></select>
+          </div>
           <p id="save-status">Chưa lưu lượt chấm</p>
           <button id="save-annotation" type="button" disabled>Lưu lượt chấm</button>
           <button id="view-saved-annotations" type="button">Xem nhãn đã lưu</button>
@@ -93,6 +81,6 @@
     </main>
     <script src="/static/canvas_transform.js"></script>
     <script src="/static/ellipse_guides.js?v=assisted-ellipse-1"></script>
-    <script src="/static/labeler.js?v=cardinal-projective-center-1"></script>
+    <script src="/static/labeler.js?v=form-layout-4"></script>
   </body>
 </html>

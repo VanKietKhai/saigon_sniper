@@ -1,4 +1,4 @@
-"""Local append-only storage for independently human-created annotation passes."""
+"""Append-only storage for cardinal-target and ellipse-hole annotations."""
 from __future__ import annotations
 
 import csv
@@ -12,14 +12,23 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from .derivation import FrozenReference, derive_provisional_result
-from .ellipse import ellipse_point_residuals, fit_human_calibration_ellipse, fit_human_hole_ellipse, opposite_pair_midpoint_diagnostics
+from .ellipse import (ellipse_point_residuals, fit_human_calibration_ellipse, fit_human_hole_ellipse,
+                      opposite_pair_midpoint_diagnostics, require_cardinal_projective_center, require_hole_cardinal_center)
 from .manifest import SourceManifest, dataset_root_from_environment
 
 ANNOTATIONS_PATH_ENV = "SAIGON_SNIPER_ANNOTATIONS_PATH"
 DEFAULT_ANNOTATIONS_PATH = Path(__file__).resolve().parent.parent / "annotations" / "ground_truth_annotations.csv"
-SOFTWARE_VERSION = "ground_truth_labeler_r1.3e.1b"
+SOFTWARE_VERSION = "ground_truth_labeler_r1.3e.1e"
 FIELDNAMES = (
-    "schema_version", "annotation_id", "source_id", "image_sha256", "annotation_pass", "labeler_id", "annotation_timestamp_utc", "rule_set_id", "software_version", "image_width_px", "image_height_px", "calibration_method", "calibration_reference_diameter_mm", "target_anchor_points", "target_final_diagonal_points", "calibration_points", "target_point_residuals_px", "target_midpoint_rms_px", "target_midpoint_max_px", "target_pair_midpoint_deviations", "calibration_center_x_px", "calibration_center_y_px", "calibration_radius_x_px", "calibration_radius_y_px", "calibration_rotation_deg", "calibration_fit_residual_px", "bull_center_x_px", "bull_center_y_px", "manual_visual_bull_center_x_px", "manual_visual_bull_center_y_px", "target_center_method", "target_label_quality", "hole_center_method", "hole_anchor_points", "hole_final_diagonal_points", "hole_center_x_px", "hole_center_y_px", "hole_boundary_points", "hole_point_residuals_px", "hole_midpoint_rms_px", "hole_midpoint_max_px", "hole_pair_midpoint_deviations", "hole_ellipse_center_x_px", "hole_ellipse_center_y_px", "hole_ellipse_radius_major_px", "hole_ellipse_radius_minor_px", "hole_ellipse_angle_deg", "hole_ellipse_rms_residual_px", "hole_ellipse_max_residual_px", "hole_label_quality", "center_distance_px", "center_distance_mm", "mm_per_pixel_x", "mm_per_pixel_y", "perspective_status", "label_quality", "review_status", "derived_score_tenths", "notes",
+    "schema_version", "annotation_id", "source_id", "image_sha256", "annotation_pass", "labeler_id",
+    "annotation_timestamp_utc", "rule_set_id", "software_version", "image_width_px", "image_height_px",
+    "target_anchor_points", "target_boundary_points", "target_ellipse_center_x_px", "target_ellipse_center_y_px", "target_ellipse_radius_major_px", "target_ellipse_radius_minor_px", "target_ellipse_angle_deg", "target_ellipse_rms_residual_px", "bull_center_x_px", "bull_center_y_px", "target_center_method",
+    "target_label_quality", "hole_center_method", "hole_anchor_points", "hole_final_diagonal_points",
+    "hole_center_x_px", "hole_center_y_px", "hole_boundary_points", "hole_point_residuals_px",
+    "hole_midpoint_rms_px", "hole_midpoint_max_px", "hole_pair_midpoint_deviations",
+    "hole_ellipse_center_x_px", "hole_ellipse_center_y_px", "hole_ellipse_radius_major_px",
+    "hole_ellipse_radius_minor_px", "hole_ellipse_angle_deg", "hole_ellipse_rms_residual_px",
+    "hole_ellipse_max_residual_px", "hole_label_quality", "center_distance_mm", "derived_score_tenths", "review_status", "notes",
 )
 _LOCK = threading.Lock()
 
@@ -38,6 +47,11 @@ def _points(value: object, name: str) -> Sequence[Mapping[str, object]]:
     return value
 
 
+def _legacy_header(path: Path) -> bool:
+    with path.open(newline="", encoding="utf-8") as file:
+        return tuple(csv.DictReader(file).fieldnames or ()) != FIELDNAMES
+
+
 def _assert_hole_in_bounds(points: Sequence[Mapping[str, object]], width: int, height: int) -> None:
     for point in points:
         try: x, y = float(point["x_px"]), float(point["y_px"])
@@ -46,23 +60,32 @@ def _assert_hole_in_bounds(points: Sequence[Mapping[str, object]], width: int, h
             raise AnnotationError("Hole boundary point is outside the image.")
 
 
-def _legacy_header(path: Path) -> bool:
-    with path.open(newline="", encoding="utf-8") as file:
-        return tuple(csv.DictReader(file).fieldnames or ()) != FIELDNAMES
-
-
 def list_saved_annotations() -> list[dict[str, object]]:
-    """Return an allow-listed, read-only completion summary without creating storage."""
+    path = annotations_path()
+    if not path.exists(): return []
+    with path.open(newline="", encoding="utf-8") as file:
+        return [{"annotation_id": row.get("annotation_id"), "source_id": row.get("source_id"), "annotation_pass": row.get("annotation_pass"),
+                 "labeler_id": row.get("labeler_id"), "saved_at": row.get("annotation_timestamp_utc")}
+                for row in csv.DictReader(file) if row.get("annotation_pass") in {"A", "B"}]
+
+
+def saved_annotation(annotation_id: str) -> dict[str, object]:
+    """Return one stored annotation for read-only TEMP reload; never alter it."""
     path = annotations_path()
     if not path.exists():
-        return []
+        raise AnnotationError("annotation_not_found")
     with path.open(newline="", encoding="utf-8") as file:
-        return [
-            {"source_id": row.get("source_id"), "annotation_pass": row.get("annotation_pass"),
-             "labeler_id": row.get("labeler_id"), "saved_at": row.get("annotation_timestamp_utc")}
-            for row in csv.DictReader(file)
-            if row.get("annotation_pass") in {"A", "B"}
-        ]
+        for row in csv.DictReader(file):
+            if row.get("annotation_id") == annotation_id:
+                return {
+                    "annotation_id": row["annotation_id"], "source_id": row["source_id"],
+                    "annotation_pass": row["annotation_pass"], "labeler_id": row["labeler_id"],
+                    "calibration_points": json.loads(row["target_boundary_points"]),
+                    "hole_boundary_points": json.loads(row["hole_boundary_points"]),
+                    "target_label_quality": row["target_label_quality"],
+                    "hole_label_quality": row["hole_label_quality"], "notes": row["notes"],
+                }
+    raise AnnotationError("annotation_not_found")
 
 
 def append_annotation(payload: Mapping[str, object], manifest: SourceManifest, reference: FrozenReference) -> dict[str, object]:
@@ -73,40 +96,58 @@ def append_annotation(payload: Mapping[str, object], manifest: SourceManifest, r
     if len(notes) > 2000: raise AnnotationError("Notes are too long.")
     quality_values = {"good", "usable", "ambiguous", "poor"}
     target_quality, hole_quality = payload.get("target_label_quality"), payload.get("hole_label_quality")
-    if target_quality is None and hole_quality is None:
-        # Existing callers/rows remain readable; new UI always supplies split fields.
-        if payload.get("perspective_status") not in {"circular", "elliptical_moderate", "extreme_needs_review", "excluded"} or payload.get("label_quality") not in quality_values:
-            raise AnnotationError("target_label_quality and hole_label_quality are required.")
-        target_quality = hole_quality = payload["label_quality"]
-    if target_quality not in quality_values or hole_quality not in quality_values: raise AnnotationError("target_label_quality and hole_label_quality are required.")
+    if target_quality not in quality_values or hole_quality not in quality_values:
+        raise AnnotationError("target_label_quality and hole_label_quality are required.")
     record = manifest.record_for(source_id)
     identity = manifest.verify_source(source_id, dataset_root_from_environment())
     if identity.status != "verified": raise AnnotationError(identity.status)
-    calibration_points = _points(payload.get("calibration_points"), "Calibration points")
+    target_anchors = _points(payload.get("calibration_points"), "Target anchors")
+    if len(target_anchors) != 8: raise AnnotationError("eight_target_boundary_points_are_required")
+    calibration = fit_human_calibration_ellipse(target_anchors)
+    target_center = require_cardinal_projective_center(target_anchors, calibration)
     hole_boundary_points = _points(payload.get("hole_boundary_points"), "Hole boundary points")
-    calibration = fit_human_calibration_ellipse(calibration_points)
-    width, height = int(record["width_px"]), int(record["height_px"])
-    _assert_hole_in_bounds(hole_boundary_points, width, height)
+    if len(hole_boundary_points) != 8: raise AnnotationError("eight_hole_boundary_points_are_required")
+    _assert_hole_in_bounds(hole_boundary_points, int(record["width_px"]), int(record["height_px"]))
     hole = fit_human_hole_ellipse(hole_boundary_points)
-    target_residuals = ellipse_point_residuals(calibration_points, calibration, "Target calibration")
+    hole_cardinal = require_hole_cardinal_center(hole_boundary_points[:4], hole)
     hole_residuals = ellipse_point_residuals(hole_boundary_points, hole, "Hole boundary")
-    target_midpoints = opposite_pair_midpoint_diagnostics(calibration_points, calibration, "Target calibration")
     hole_midpoints = opposite_pair_midpoint_diagnostics(hole_boundary_points, hole, "Hole boundary")
-    result = derive_provisional_result(source_id, calibration, {"x_px": hole.center_x_px, "y_px": hole.center_y_px}, reference, {"x_px": calibration.center_x_px, "y_px": calibration.center_y_px})
+    result = derive_provisional_result(source_id, calibration, {"x_px": hole_cardinal.cardinal_center_x_px, "y_px": hole_cardinal.cardinal_center_y_px}, reference, {"x_px": target_center.cardinal_center_x_px, "y_px": target_center.cardinal_center_y_px})
+    row = {
+        "schema_version": "2.7", "annotation_id": str(uuid.uuid4()), "source_id": source_id,
+        "image_sha256": record["image_sha256"], "annotation_pass": annotation_pass, "labeler_id": labeler_id,
+        "annotation_timestamp_utc": datetime.now(timezone.utc).isoformat(), "rule_set_id": reference.rule_set_id,
+        "software_version": SOFTWARE_VERSION, "image_width_px": int(record["width_px"]), "image_height_px": int(record["height_px"]),
+        "target_anchor_points": json.dumps(target_anchors[:4], separators=(",", ":")), "target_boundary_points": json.dumps(target_anchors, separators=(",", ":")),
+        "target_ellipse_center_x_px": calibration.center_x_px, "target_ellipse_center_y_px": calibration.center_y_px,
+        "target_ellipse_radius_major_px": calibration.radius_major_px, "target_ellipse_radius_minor_px": calibration.radius_minor_px,
+        "target_ellipse_angle_deg": calibration.rotation_deg, "target_ellipse_rms_residual_px": calibration.calibration_fit_residual_px,
+        "bull_center_x_px": target_center.cardinal_center_x_px, "bull_center_y_px": target_center.cardinal_center_y_px,
+        "target_center_method": "cardinal_diameter_intersection_v1", "target_label_quality": target_quality,
+        "hole_center_method": "cardinal_diameter_intersection_v1", "hole_anchor_points": json.dumps(hole_boundary_points[:4], separators=(",", ":")),
+        "hole_final_diagonal_points": json.dumps(hole_boundary_points[4:], separators=(",", ":")),
+        "hole_center_x_px": hole_cardinal.cardinal_center_x_px, "hole_center_y_px": hole_cardinal.cardinal_center_y_px,
+        "hole_boundary_points": json.dumps(hole_boundary_points, separators=(",", ":")),
+        "hole_point_residuals_px": json.dumps(hole_residuals, separators=(",", ":")),
+        "hole_midpoint_rms_px": hole_midpoints.midpoint_rms_px, "hole_midpoint_max_px": hole_midpoints.midpoint_max_px,
+        "hole_pair_midpoint_deviations": json.dumps(hole_midpoints.public()["pairs"], separators=(",", ":")),
+        "hole_ellipse_center_x_px": hole.center_x_px, "hole_ellipse_center_y_px": hole.center_y_px,
+        "hole_ellipse_radius_major_px": hole.radius_major_px, "hole_ellipse_radius_minor_px": hole.radius_minor_px,
+        "hole_ellipse_angle_deg": hole.rotation_deg, "hole_ellipse_rms_residual_px": hole.hole_ellipse_rms_residual_px,
+        "hole_ellipse_max_residual_px": hole.hole_ellipse_max_residual_px,
+        "hole_label_quality": hole_quality, "center_distance_mm": result.center_distance_mm, "derived_score_tenths": result.provisional_score_tenths, "review_status": "unreviewed", "notes": notes,
+    }
     path = annotations_path()
-    row = {"schema_version":"2.3", "annotation_id":str(uuid.uuid4()), "source_id":source_id, "image_sha256":record["image_sha256"], "annotation_pass":annotation_pass, "labeler_id":labeler_id, "annotation_timestamp_utc":datetime.now(timezone.utc).isoformat(), "rule_set_id":reference.rule_set_id, "software_version":SOFTWARE_VERSION, "image_width_px":width, "image_height_px":height, "calibration_method":"ring1_outer_8pt_v2", "calibration_reference_diameter_mm":reference.calibration_radius_mm*2, "target_anchor_points":json.dumps(calibration_points[:4],separators=(",",":")), "target_final_diagonal_points":json.dumps(calibration_points[4:],separators=(",",":")), "calibration_points":json.dumps(calibration_points,separators=(",",":")), "target_point_residuals_px":json.dumps(target_residuals,separators=(",",":")), "target_midpoint_rms_px":target_midpoints.midpoint_rms_px, "target_midpoint_max_px":target_midpoints.midpoint_max_px, "target_pair_midpoint_deviations":json.dumps(target_midpoints.public()["pairs"],separators=(",",":")), "calibration_center_x_px":calibration.center_x_px, "calibration_center_y_px":calibration.center_y_px, "calibration_radius_x_px":calibration.radius_major_px, "calibration_radius_y_px":calibration.radius_minor_px, "calibration_rotation_deg":calibration.rotation_deg, "calibration_fit_residual_px":calibration.calibration_fit_residual_px, "bull_center_x_px":calibration.center_x_px, "bull_center_y_px":calibration.center_y_px, "manual_visual_bull_center_x_px":None, "manual_visual_bull_center_y_px":None, "target_center_method":"assisted_ellipse_8pt_v1", "target_label_quality":target_quality, "hole_center_method":"assisted_ellipse_8pt_v1", "hole_anchor_points":json.dumps(hole_boundary_points[:4],separators=(",",":")), "hole_final_diagonal_points":json.dumps(hole_boundary_points[4:],separators=(",",":")), "hole_center_x_px":hole.center_x_px, "hole_center_y_px":hole.center_y_px, "hole_boundary_points":json.dumps(hole_boundary_points,separators=(",",":")), "hole_point_residuals_px":json.dumps(hole_residuals,separators=(",",":")), "hole_midpoint_rms_px":hole_midpoints.midpoint_rms_px, "hole_midpoint_max_px":hole_midpoints.midpoint_max_px, "hole_pair_midpoint_deviations":json.dumps(hole_midpoints.public()["pairs"],separators=(",",":")), "hole_ellipse_center_x_px":hole.center_x_px, "hole_ellipse_center_y_px":hole.center_y_px, "hole_ellipse_radius_major_px":hole.radius_major_px, "hole_ellipse_radius_minor_px":hole.radius_minor_px, "hole_ellipse_angle_deg":hole.rotation_deg, "hole_ellipse_rms_residual_px":hole.hole_ellipse_rms_residual_px, "hole_ellipse_max_residual_px":hole.hole_ellipse_max_residual_px, "hole_label_quality":hole_quality, "center_distance_px":math.hypot(hole.center_x_px-calibration.center_x_px,hole.center_y_px-calibration.center_y_px), "center_distance_mm":result.center_distance_mm, "mm_per_pixel_x":result.mm_per_px_major, "mm_per_pixel_y":result.mm_per_px_minor, "perspective_status":"", "label_quality":"", "review_status":"unreviewed", "derived_score_tenths":result.provisional_score_tenths, "notes":notes}
     with _LOCK:
         path.parent.mkdir(parents=True, exist_ok=True)
         exists = path.exists()
         if exists and _legacy_header(path): raise AnnotationError("legacy_annotation_storage_requires_new_pilot_file")
         if exists:
-            with path.open(newline="", encoding="utf-8") as file:
-                existing_rows = list(csv.DictReader(file))
-            if any(existing.get("calibration_method") != "ring1_outer_8pt_v2" for existing in existing_rows):
-                raise AnnotationError("historical_calibration_storage_requires_new_pilot_file")
-            if any(existing["source_id"] == source_id and existing["labeler_id"] == labeler_id and existing["annotation_pass"] == annotation_pass for existing in existing_rows): raise DuplicateAnnotationError("duplicate_annotation_pass")
+            with path.open(newline="", encoding="utf-8") as file: existing_rows = list(csv.DictReader(file))
+            if any(existing["source_id"] == source_id and existing["labeler_id"] == labeler_id and existing["annotation_pass"] == annotation_pass for existing in existing_rows):
+                raise DuplicateAnnotationError("duplicate_annotation_pass")
         with path.open("a", newline="", encoding="utf-8") as file:
             writer = csv.DictWriter(file, fieldnames=FIELDNAMES)
             if not exists: writer.writeheader()
             writer.writerow(row); file.flush(); os.fsync(file.fileno())
-    return {"annotation_id":row["annotation_id"], "derived_score_tenths":row["derived_score_tenths"], "review_status":"unreviewed", "hole_center_method":row["hole_center_method"]}
+    return {"annotation_id": row["annotation_id"], "review_status": "unreviewed", "hole_center_method": row["hole_center_method"], "target_center_method": row["target_center_method"]}

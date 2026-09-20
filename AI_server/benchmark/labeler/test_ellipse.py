@@ -10,6 +10,7 @@ from .ellipse import (EllipseFitError, LeaveOneOutPointDiagnostics,
                       OppositePairMidpointDiagnostics, assisted_diagonal_predictions,
                       calibration_stability, cardinal_projective_center, ellipse_point_residuals,
                       fit_human_calibration_ellipse, fit_human_hole_ellipse,
+                      hole_cardinal_center,
                       leave_one_out_point_diagnostics, opposite_pair_midpoint_diagnostics,
                       pair_point_recommendations, target_ghost_loo_confidence)
 
@@ -42,11 +43,42 @@ def projective_circle_points(center_x, center_y, radius):
         }
 
     # Start at physical 12h and proceed clockwise in image coordinates.
-    points = [project(center_x + radius * math.sin(index * math.pi / 4), center_y - radius * math.cos(index * math.pi / 4)) for index in range(8)]
+    clock = [project(center_x + radius * math.sin(index * math.pi / 4), center_y - radius * math.cos(index * math.pi / 4)) for index in range(8)]
+    points = [
+        {**clock[0], "semantic_role": "12h"}, {**clock[2], "semantic_role": "3h"},
+        {**clock[4], "semantic_role": "6h"}, {**clock[6], "semantic_role": "9h"},
+        clock[1], clock[3], clock[5], clock[7],
+    ]
     return points, project(center_x, center_y)
 
 
 class EllipseFitTests(unittest.TestCase):
+    def test_hole_cardinal_center_recovers_projected_physical_center_without_ellipse_authority(self):
+        points, physical_center = projective_circle_points(500, 500, 100)
+        hole_points = [
+            {**points[0], "semantic_role": "hole_12h"},
+            {**points[1], "semantic_role": "hole_3h"},
+            {**points[2], "semantic_role": "hole_6h"},
+            {**points[3], "semantic_role": "hole_9h"},
+            *points[4:],
+        ]
+        fitted = fit_human_hole_ellipse(hole_points)
+        diagnostic = hole_cardinal_center(hole_points[:4], fitted)
+        self.assertTrue(diagnostic.available)
+        self.assertAlmostEqual(diagnostic.cardinal_center_x_px, physical_center["x_px"], places=5)
+        self.assertAlmostEqual(diagnostic.cardinal_center_y_px, physical_center["y_px"], places=5)
+        self.assertGreater(diagnostic.distance_px, 0.25)
+
+    def test_hole_cardinal_center_rejects_missing_or_parallel_semantic_anchors(self):
+        missing = [{"x_px": 0, "y_px": 0}] * 4
+        self.assertFalse(hole_cardinal_center(missing).available)
+        parallel = [
+            {"x_px": 0, "y_px": 0, "semantic_role": "hole_12h"},
+            {"x_px": 0, "y_px": 2, "semantic_role": "hole_3h"},
+            {"x_px": 2, "y_px": 0, "semantic_role": "hole_6h"},
+            {"x_px": 2, "y_px": 2, "semantic_role": "hole_9h"},
+        ]
+        self.assertFalse(hole_cardinal_center(parallel).available)
     def test_cardinal_projective_center_recovers_physical_center_under_perspective(self):
         points, physical_center = projective_circle_points(500, 500, 100)
         fitted = fit_human_calibration_ellipse(points)
@@ -59,7 +91,7 @@ class EllipseFitTests(unittest.TestCase):
         self.assertEqual(fitted.bull_center_x_px, fitted.center_x_px)
         self.assertEqual(fitted.bull_center_y_px, fitted.center_y_px)
 
-    def test_cardinal_projective_center_uses_clock_mapping_not_raw_click_order(self):
+    def test_cardinal_projective_center_uses_semantic_mapping_not_raw_click_order(self):
         points, physical_center = projective_circle_points(500, 500, 100)
         shuffled = [points[index] for index in (3, 7, 1, 5, 0, 4, 2, 6)]
         diagnostic = cardinal_projective_center(shuffled, fit_human_calibration_ellipse(shuffled))
@@ -74,13 +106,11 @@ class EllipseFitTests(unittest.TestCase):
     def test_cardinal_projective_center_marks_parallel_diameters_unavailable(self):
         points = ellipse_points(100, 100, 50, 30, 0, 8)
         fitted = fit_human_calibration_ellipse(points)
-        # Supply the same clock mapping with parallel image-space diameter lines.
-        ordered = [
-            (0, (10.0, 10.0)), (1, (30.0, 10.0)), (2, (20.0, 10.0)), (3, (30.0, 30.0)),
-            (4, (10.0, 90.0)), (5, (30.0, 90.0)), (6, (20.0, 90.0)), (7, (30.0, 70.0)),
-        ]
-        with patch("AI_server.benchmark.labeler.ellipse._ellipse_local_angular_order", return_value=ordered):
-            diagnostic = cardinal_projective_center(points, fitted)
+        points[0]["semantic_role"] = "12h"; points[1]["semantic_role"] = "3h"
+        points[2]["semantic_role"] = "6h"; points[3]["semantic_role"] = "9h"
+        points[0].update(x_px=10.0, y_px=10.0); points[2].update(x_px=10.0, y_px=90.0)
+        points[3].update(x_px=30.0, y_px=10.0); points[1].update(x_px=30.0, y_px=90.0)
+        diagnostic = cardinal_projective_center(points, fitted)
         self.assertFalse(diagnostic.available)
         self.assertEqual(diagnostic.reason, "near_parallel_diameters")
 

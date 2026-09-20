@@ -151,24 +151,19 @@ button[aria-pressed="true"] {
 
 button:disabled { opacity: 0.55; }
 
-.control-help { color: #c7d1ca; font-size: 0.9rem; line-height: 1.4; }
-
-.provisional-notice { color: #f0a928; font-weight: 700; font-size: 0.9rem; }
-
-.provisional-score-card {
+.score-details {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
   border: 2px solid #f0a928;
   border-radius: 10px;
   background: #102b20;
-  color: #f4f6f4;
-  margin: 14px 0;
-  padding: 14px;
-  text-align: center;
+  overflow-wrap: anywhere;
 }
-.provisional-score-card p { color: #f0a928; font-weight: 700; margin: 0; }
-.provisional-score-card strong { display: block; font-size: 3rem; line-height: 1.15; margin: 6px 0; }
-.provisional-score-card span { color: #c7d1ca; font-size: .9rem; }
-.provisional-score-card.is-miss { border-color: #ff5a7a; background: #3b1722; }
-.provisional-score-card.is-stale { border-color: #aab8ad; background: #26352a; }
+.score-value { color: #f4f6f4; font-size: clamp(2.5rem, 8vw, 3rem); font-weight: 800; line-height: 1; }
+.score-caption { color: #f0a928; font-size: .9rem; font-weight: 700; text-transform: uppercase; }
+.score-center { margin: 5px 0 0; color: #c7d1ca; font-size: .9rem; line-height: 1.35; }
+.score-center span { color: #f4f6f4; }
 
 .source-loader {
   display: grid;
@@ -177,7 +172,9 @@ button:disabled { opacity: 0.55; }
   margin: 6px 0 20px;
 }
 
-input { min-width: 0; padding: 10px; }
+.form-field { display: flex; flex-direction: column; gap: 4px; margin-top: 14px; }
+.form-field label { color: #f0a928; font-weight: 700; }
+.form-field input, .form-field select { width: 100%; min-width: 0; padding: 10px; }
 
 @media (max-width: 760px) {
   body { overflow: auto; }

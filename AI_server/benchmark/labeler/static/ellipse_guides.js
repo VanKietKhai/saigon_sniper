@@ -24,8 +24,8 @@
       throw new Error("invalid_image_point");
     }
     return points.map((point, index) => index === pointIndex
-      ? { x_px: imagePoint.x, y_px: imagePoint.y }
-      : { x_px: point.x_px, y_px: point.y_px });
+      ? { ...point, x_px: imagePoint.x, y_px: imagePoint.y }
+      : { ...point });
   }
 
   function invalidatedGeometryState(kind) {
