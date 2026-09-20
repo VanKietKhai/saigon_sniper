@@ -80,7 +80,23 @@
     });
   }
 
-  const api = { nearestHandleIndex, replaceRawPoint, invalidatedGeometryState, diagonalGhosts, localEdgeCandidate, pointResiduals };
+  // Each image-open operation owns a monotonically increasing token.  Async
+  // callbacks must check this token before touching UI state, so a late result
+  // for a previously opened source can never leak into the current source.
+  function createSourceSessionGuard() {
+    let generation = 0;
+    return {
+      begin(sourceId) {
+        generation += 1;
+        return Object.freeze({ generation, sourceId });
+      },
+      isCurrent(token) {
+        return Boolean(token) && token.generation === generation;
+      },
+    };
+  }
+
+  const api = { nearestHandleIndex, replaceRawPoint, invalidatedGeometryState, diagonalGhosts, localEdgeCandidate, pointResiduals, createSourceSessionGuard };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.LabelerEllipseGuides = api;
 }(typeof window !== "undefined" ? window : globalThis));

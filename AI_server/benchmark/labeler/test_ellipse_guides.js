@@ -26,4 +26,10 @@ assert.deepStrictEqual(guides.invalidatedGeometryState("target"), {
 assert.deepStrictEqual(guides.invalidatedGeometryState("hole"), {
   fitState: null, holeFitState: "fitting", derivedResult: null, savedAnnotation: null,
 });
+const sourceSessions = guides.createSourceSessionGuard();
+const firstSource = sourceSessions.begin("RIFLE_SRC_0001");
+assert.strictEqual(sourceSessions.isCurrent(firstSource), true);
+const secondSource = sourceSessions.begin("RIFLE_SRC_0002");
+assert.strictEqual(sourceSessions.isCurrent(firstSource), false, "late source A work must be rejected");
+assert.strictEqual(sourceSessions.isCurrent(secondSource), true);
 console.log("ellipse guide interaction tests: PASS");

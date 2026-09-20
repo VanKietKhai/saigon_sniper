@@ -4,6 +4,7 @@ document.documentElement.dataset.labelerStage = "verified-image-loading";
 
 const transforms = window.LabelerCanvasTransforms;
 const guides = window.LabelerEllipseGuides;
+const sourceSessions = guides.createSourceSessionGuard();
 const datasetConfigured = document.querySelector("#dataset-configured");
 const sourceIdStatus = document.querySelector("#source-id-status");
 const identityStatus = document.querySelector("#identity-status");
@@ -121,6 +122,7 @@ const state = {
   holeEditRevision: 0,
   imagePixels: null,
   holeSnapPreviews: [],
+  sourceRequestToken: null,
 };
 
 async function loadHealth() {
@@ -153,31 +155,68 @@ function clearHoleGeometry() {
   state.diagnosticFocus = null;
   state.holeFitState = "not_fitted";
   state.holeCenter = null; state.holeCardinalCenter = null;
+  state.holeEditRevision += 1;
   if (state.mode === "hole_boundary") state.mode = "none";
   invalidateDerived();
 }
 
 
-function resetImage(message) {
+function isCurrentSourceRequest(token) {
+  return token === state.sourceRequestToken && sourceSessions.isCurrent(token);
+}
+
+function resetSourceState(message) {
+  if (state.refitTimer) window.clearTimeout(state.refitTimer);
+  state.refitTimer = null;
+  state.sourceId = null;
   state.image = null;
   state.imagePixels = null;
   state.metadata = null;
   state.verifiedAndDecoded = false;
+  state.view = { scale: 1, panX: 0, panY: 0 };
   state.pointerImage = null;
   state.mode = "none";
   state.fitActive = false;
   state.panStart = null;
+  state.spacePanActive = false;
+  state.loupeEnabled = false;
+  state.calibrationPoints = [];
+  state.targetSnapPreviews = [];
+  state.cardinalProjectiveCenter = null;
+  state.ellipseFit = null;
+  state.derivedResult = null;
+  state.derivationError = null;
+  state.holeBoundaryPoints = [];
+  state.holeEllipseFit = null;
+  state.holeStability = null;
+  state.holeMidpoints = null;
+  state.holeLeaveOneOut = null;
+  state.holePairRecommendations = null;
+  state.diagnosticFocus = null;
+  state.holeFitState = "not_fitted";
+  state.holeCenter = null;
+  state.holeCardinalCenter = null;
   state.savedAnnotation = null;
   state.holeSnapPreviews = [];
   state.draggedHandle = null;
+  state.targetEditRevision += 1;
+  state.holeEditRevision += 1;
+  targetLabelQuality.value = "";
+  holeLabelQuality.value = "";
+  savedAnnotationsPanel.hidden = true;
+  sourceIdStatus.textContent = "Chưa mở";
+  identityStatus.textContent = "Đang kiểm tra…";
   saveStatus.textContent = "Chưa lưu lượt chấm";
-  invalidateFit();
   imageMessage.hidden = false;
   imageMessage.textContent = message;
   imageDetails.textContent = "Chưa mở";
   cursorStatus.textContent = "Ngoài vùng ảnh";
   updateControls();
   render();
+}
+
+function resetImage(message) {
+  resetSourceState(message);
 }
 
 function pixelModeIsActive() {
@@ -640,9 +679,12 @@ function updateControls() {
 async function saveAnnotation() {
   if (!state.holeEllipseFit || !state.cardinalProjectiveCenter?.available || !state.holeCardinalCenter?.available || !labelerId.value.trim() || state.savedAnnotation) return;
   if (!window.confirm(`Lưu lượt chấm ${annotationPass.value} cho ${state.sourceId}, người chấm ${labelerId.value.trim()}?`)) return;
+  const requestToken = state.sourceRequestToken;
+  const sourceId = state.sourceId;
   saveStatus.textContent = "Đang lưu lượt chấm…";
-  const response = await fetch("/api/annotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source_id: state.sourceId, annotation_pass: annotationPass.value, labeler_id: labelerId.value.trim(), calibration_points: state.calibrationPoints, hole_boundary_points: state.holeBoundaryPoints, target_label_quality: targetLabelQuality.value, hole_label_quality: holeLabelQuality.value, target_center_method: "cardinal_diameter_intersection_v1", hole_center_method: "cardinal_diameter_intersection_v1", notes: "" }) });
+  const response = await fetch("/api/annotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source_id: sourceId, annotation_pass: annotationPass.value, labeler_id: labelerId.value.trim(), calibration_points: state.calibrationPoints, hole_boundary_points: state.holeBoundaryPoints, target_label_quality: targetLabelQuality.value, hole_label_quality: holeLabelQuality.value, target_center_method: "cardinal_diameter_intersection_v1", hole_center_method: "cardinal_diameter_intersection_v1", notes: "" }) });
   const payload = await response.json();
+  if (!isCurrentSourceRequest(requestToken) || state.sourceId !== sourceId) return;
   if (!response.ok) { saveStatus.textContent = payload.detail?.status === "duplicate_annotation_pass" ? "Lượt chấm này đã tồn tại." : "Không thể lưu lượt chấm."; return; }
   state.savedAnnotation = payload.annotation_id;
   saveStatus.textContent = `Đã lưu lượt chấm. Mã annotation: ${payload.annotation_id}`;
@@ -747,6 +789,8 @@ function imagePointFromEvent(event) {
 
 function clearTransientPoints() {
   state.calibrationPoints = [];
+  state.targetSnapPreviews = [];
+  state.targetEditRevision += 1;
   invalidateFit();
   updateControls();
   render();
@@ -759,6 +803,7 @@ function addHoleBoundaryPoint(imagePoint) {
   const roles = ["hole_12h", "hole_3h", "hole_6h", "hole_9h"];
   const semantic_role = roles[state.holeBoundaryPoints.length];
   state.holeBoundaryPoints.push({ x_px: imagePoint.x, y_px: imagePoint.y, ...(semantic_role ? { semantic_role } : {}) });
+  state.holeEditRevision += 1;
   state.holeEllipseFit = null; state.holeStability = null; state.holeMidpoints = null; state.holeLeaveOneOut = null; state.holePairRecommendations = null; state.holeFitState = "not_fitted"; state.holeCenter = null;
   updateSnapPreviews("hole");
   if (state.holeBoundaryPoints.length === 4) determineHoleCenter();
@@ -769,37 +814,51 @@ function addHoleBoundaryPoint(imagePoint) {
 
 async function fitHoleEllipse() {
   if (state.holeBoundaryPoints.length !== 8) return;
+  const requestToken = state.sourceRequestToken;
+  const revision = state.holeEditRevision;
   state.holeFitState = "fitting"; state.holeEllipseFit = null; state.holeMidpoints = null; state.holeLeaveOneOut = null; state.holePairRecommendations = null; state.holeCenter = null; invalidateDerived(); updateControls();
   try {
     const response = await fetch("/api/hole-ellipse/fit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ points: state.holeBoundaryPoints }) });
     const payload = await response.json(); if (!response.ok) throw new Error(payload.detail?.status || "invalid_hole_boundary_points");
+    if (!isCurrentSourceRequest(requestToken) || revision !== state.holeEditRevision) return;
     state.holeEllipseFit = payload.ellipse; state.holeStability = payload.stability; state.holeMidpoints = payload.midpoint_diagnostics; state.holeLeaveOneOut = payload.leave_one_out_diagnostics; state.holePairRecommendations = payload.pair_point_recommendations; state.holeFitState = "fitted";
-  } catch (error) { state.holeFitState = "needs_redo"; holeCenterStatus.textContent = displayStatus(error.message); }
+  } catch (error) { if (!isCurrentSourceRequest(requestToken) || revision !== state.holeEditRevision) return; state.holeFitState = "needs_redo"; holeCenterStatus.textContent = displayStatus(error.message); }
   updateControls(); render();
 }
 
 async function determineHoleCenter() {
   if (state.holeBoundaryPoints.length < 4) return;
+  const requestToken = state.sourceRequestToken;
+  const revision = state.holeEditRevision;
   const response = await fetch("/api/hole-center", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ points: state.holeBoundaryPoints.slice(0, 4) }) });
   const payload = await response.json();
+  if (!isCurrentSourceRequest(requestToken) || revision !== state.holeEditRevision) return;
   state.holeCardinalCenter = response.ok ? payload.hole_cardinal_center : { available: false, reason: payload.detail?.status };
   updateControls(); render();
 }
 
 async function fitEllipse() {
   if (state.calibrationPoints.length !== 8) return;
+  const requestToken = state.sourceRequestToken;
+  const revision = state.targetEditRevision;
   const response = await fetch("/api/calibration/fit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ points: state.calibrationPoints }) });
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.detail?.status || "ellipse_fit_failed");
+  if (!isCurrentSourceRequest(requestToken) || revision !== state.targetEditRevision) return;
   state.ellipseFit = payload.ellipse;
   updateControls(); render();
 }
 
 async function deriveScore() {
   if (!state.sourceId || !state.ellipseFit || !state.holeEllipseFit) return;
-  const response = await fetch("/api/derive", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source_id: state.sourceId, calibration_points: state.calibrationPoints, hole_boundary_points: state.holeBoundaryPoints }) });
+  const requestToken = state.sourceRequestToken;
+  const sourceId = state.sourceId;
+  const targetRevision = state.targetEditRevision;
+  const holeRevision = state.holeEditRevision;
+  const response = await fetch("/api/derive", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source_id: sourceId, calibration_points: state.calibrationPoints, hole_boundary_points: state.holeBoundaryPoints }) });
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.detail?.status || "provisional_derivation_failed");
+  if (!isCurrentSourceRequest(requestToken) || state.sourceId !== sourceId || targetRevision !== state.targetEditRevision || holeRevision !== state.holeEditRevision) return;
   state.derivedResult = payload.result; updateControls(); render();
 }
 
@@ -814,15 +873,16 @@ function scheduleLiveRefit(kind) {
 
 async function determineTargetCenter() {
   if (state.calibrationPoints.length < 4) return;
+  const requestToken = state.sourceRequestToken;
   const revision = state.targetEditRevision;
   try {
     const response = await fetch("/api/target-center", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ points: state.calibrationPoints.slice(0, 4) }) });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.detail?.status || "invalid_cardinal_target_geometry");
-    if (revision !== state.targetEditRevision) return;
+    if (!isCurrentSourceRequest(requestToken) || revision !== state.targetEditRevision) return;
     state.cardinalProjectiveCenter = payload.cardinal_projective_center;
   } catch (error) {
-    if (revision !== state.targetEditRevision) return;
+    if (!isCurrentSourceRequest(requestToken) || revision !== state.targetEditRevision) return;
     state.cardinalProjectiveCenter = { available: false, reason: error.message };
   }
   updateControls(); render();
@@ -830,15 +890,16 @@ async function determineTargetCenter() {
 
 async function fitHolePreview() {
   if (state.holeBoundaryPoints.length !== 8) return;
+  const requestToken = state.sourceRequestToken;
   const revision = state.holeEditRevision;
   try {
     const response = await fetch("/api/hole-ellipse/fit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ points: state.holeBoundaryPoints }) });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.detail?.status || "invalid_hole_boundary_points");
-    if (revision !== state.holeEditRevision) return;
+    if (!isCurrentSourceRequest(requestToken) || revision !== state.holeEditRevision) return;
     state.holeEllipseFit = payload.ellipse; state.holeStability = payload.stability; state.holeMidpoints = payload.midpoint_diagnostics; state.holeLeaveOneOut = payload.leave_one_out_diagnostics; state.holePairRecommendations = payload.pair_point_recommendations; state.holeFitState = "fitted";
   } catch (error) {
-    if (revision !== state.holeEditRevision) return;
+    if (!isCurrentSourceRequest(requestToken) || revision !== state.holeEditRevision) return;
     state.holeFitState = "needs_redo"; holeCenterStatus.textContent = displayStatus(error.message);
   }
   updateControls(); render();
@@ -906,7 +967,8 @@ function redoCalibration() {
   }
 }
 
-async function restoreAnnotationGeometry(annotation) {
+async function restoreAnnotationGeometry(annotation, requestToken) {
+  if (!isCurrentSourceRequest(requestToken)) return;
   state.calibrationPoints = annotation.calibration_points;
   state.holeBoundaryPoints = annotation.hole_boundary_points;
   state.targetEditRevision += 1; state.holeEditRevision += 1;
@@ -916,14 +978,17 @@ async function restoreAnnotationGeometry(annotation) {
   holeLabelQuality.value = annotation.hole_label_quality;
   state.savedAnnotation = annotation.annotation_id;
   await Promise.all([determineTargetCenter(), determineHoleCenter(), fitEllipse(), fitHoleEllipse()]);
+  if (!isCurrentSourceRequest(requestToken)) return;
   saveStatus.textContent = `Đã mở annotation: ${annotation.annotation_id}`;
   updateControls(); render();
 }
 
 async function reloadSavedAnnotation(annotationId) {
+  const requestToken = state.sourceRequestToken;
   const response = await fetch(`/api/annotations/${encodeURIComponent(annotationId)}`);
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.detail?.status || "annotation_not_found");
+  if (requestToken && !isCurrentSourceRequest(requestToken)) return;
   sourceIdInput.value = payload.annotation.source_id;
   await loadSource(payload.annotation);
 }
@@ -937,11 +1002,13 @@ async function loadSource(restoredAnnotation = null) {
 
   if ((state.calibrationPoints.length > 0 || state.holeBoundaryPoints.length > 0) && sourceId !== state.sourceId
     && !window.confirm("Bạn có muốn chuyển sang ảnh khác? Các thao tác chưa lưu trên ảnh hiện tại sẽ bị hủy.")) return;
-  if (sourceId !== state.sourceId) clearTransientPoints();
+  const requestToken = sourceSessions.begin(sourceId);
+  state.sourceRequestToken = requestToken;
   resetImage("Đang kiểm tra trạng thái xác minh ảnh…");
   try {
     const response = await fetch(`/api/sources/${encodeURIComponent(sourceId)}`);
     const payload = await response.json();
+    if (!isCurrentSourceRequest(requestToken)) return;
     if (!response.ok) throw new Error(payload.detail?.status || "source_not_found");
 
     sourceIdStatus.textContent = payload.source.source_id;
@@ -953,6 +1020,7 @@ async function loadSource(restoredAnnotation = null) {
 
     const verifiedImage = new Image();
     verifiedImage.onload = async () => {
+      if (!isCurrentSourceRequest(requestToken)) return;
       state.sourceId = payload.source.source_id;
       state.metadata = payload.source;
       state.image = verifiedImage;
@@ -966,14 +1034,16 @@ async function loadSource(restoredAnnotation = null) {
       imageDetails.textContent = `${payload.source.original_filename} · ${verifiedImage.naturalWidth} × ${verifiedImage.naturalHeight} px`;
       imageMessage.hidden = true;
       fitView();
-      if (restoredAnnotation) await restoreAnnotationGeometry(restoredAnnotation);
+      if (restoredAnnotation) await restoreAnnotationGeometry(restoredAnnotation, requestToken);
     };
     verifiedImage.onerror = () => {
+      if (!isCurrentSourceRequest(requestToken)) return;
       identityStatus.textContent = displayStatus("verified_image_load_failed");
       resetImage("Không thể giải mã ảnh đã xác minh");
     };
     verifiedImage.src = `/api/sources/${encodeURIComponent(sourceId)}/image`;
   } catch (error) {
+    if (!isCurrentSourceRequest(requestToken)) return;
     identityStatus.textContent = displayStatus(error.message);
     resetImage("Không thể mở ảnh");
   }
@@ -1011,7 +1081,7 @@ controls.holeBoundary.addEventListener("click", () => {
   updateControls();
 });
 controls.undoHole.addEventListener("click", () => {
-  state.holeBoundaryPoints.pop(); state.holeEllipseFit = null; state.holeFitState = "not_fitted"; state.holeCenter = null; invalidateDerived();
+  state.holeBoundaryPoints.pop(); state.holeEditRevision += 1; state.holeEllipseFit = null; state.holeFitState = "not_fitted"; state.holeCenter = null; invalidateDerived();
   updateSnapPreviews("hole");
   updateControls(); render();
 });
