@@ -1049,7 +1049,7 @@ async function loadSource(restoredAnnotation = null) {
   }
 }
 
-loadSourceButton.addEventListener("click", loadSource);
+loadSourceButton.addEventListener("click", () => { loadSource(); });
 sourceIdInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") loadSource();
 });
