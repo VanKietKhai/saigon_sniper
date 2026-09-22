@@ -1,0 +1,32 @@
+{
+  "spec_id": "saigon_sniper_air_rifle_10m_layer2_homography_v1",
+  "target_type": "air_rifle_10m",
+  "ring1_radius_mm": 22.75,
+  "pellet_radius_mm": 2.25,
+  "max_valid_center_radius_mm": 25.0,
+  "canonical_cardinal_points": {
+    "12h": [0.0, -22.75],
+    "3h": [22.75, 0.0],
+    "6h": [0.0, 22.75],
+    "9h": [-22.75, 0.0]
+  },
+  "required_input_roles": ["12h", "3h", "6h", "9h"],
+  "center_source": "authoritative_layer1_hole_center",
+  "score_rule_id": "saigon_sniper_air_rifle_10m_decimal_v1",
+  "invalid_geometry_policy": "reject_explicitly_no_fallback",
+  "validation_summary": {
+    "independent_point_count": 192,
+    "tested_rings_mm": {"ring_2": 20.25, "ring_5": 12.75, "ring_6": 10.25, "ring_8": 5.25},
+    "accepted_sources": ["RIFLE_SRC_0559", "RIFLE_SRC_0587", "RIFLE_SRC_0119", "RIFLE_SRC_0339", "RIFLE_SRC_0532"],
+    "accepted_point_count": 160,
+    "mean_absolute_residual_mm": 0.0360,
+    "median_absolute_residual_mm": 0.0222,
+    "p95_absolute_residual_mm": 0.1118,
+    "max_absolute_residual_mm": 0.2072,
+    "points_over_0_25_mm": 0,
+    "shared_radial_or_directional_bias": false
+  },
+  "excluded_acceptance_sources": {
+    "RIFLE_SRC_0284": "SOURCE_SPECIFIC_EXCLUDE_FROM_LAYER2_ACCEPTANCE"
+  }
+}
